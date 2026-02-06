@@ -43,6 +43,7 @@ type RunParams struct {
 	UserMessage  string
 	Images       []llm.ImageData
 	EventSink    EventSink
+	ToolSteps    *[]ToolStep // optional: collect tool steps for API response
 }
 
 // Run executes one complete agent turn: LLM call → tool calls → ... → final response.
@@ -175,8 +176,15 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 
 			emitter.Emit(EventTypeToolEnd, func(e *Event) {
 				e.ToolName = tc.Name
-				e.ToolResult = truncateStr(toolResult, 500)
+				e.ToolResult = toolResult
 			})
+			if params.ToolSteps != nil {
+				*params.ToolSteps = append(*params.ToolSteps, ToolStep{
+					ToolName:   tc.Name,
+					ToolParams: tc.Arguments,
+					ToolResult: toolResult,
+				})
+			}
 
 			toolMsg := llm.ToolResultMessage(tc.ID, toolResult)
 			messages = append(messages, toolMsg)
@@ -329,11 +337,4 @@ func (l *Loop) resolveClient(provider string) llm.Client {
 		l.OpenAI = llm.NewOpenAIClient()
 	}
 	return l.OpenAI
-}
-
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

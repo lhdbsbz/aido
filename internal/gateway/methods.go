@@ -9,14 +9,6 @@ import (
 	llmpkg "github.com/lhdbsbz/aido/internal/llm"
 )
 
-func (s *Server) registerMethods() {
-	s.methods["inbound.message"] = s.handleInboundMessage
-	s.methods["chat.send"] = s.handleChatSend
-	s.methods["chat.history"] = s.handleChatHistory
-	s.methods["sessions.list"] = s.handleSessionsList
-	s.methods["health"] = s.handleHealthMethod
-}
-
 // handleInboundMessage processes messages from bridges.
 func (s *Server) handleInboundMessage(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
 	var p InboundMessageParams
@@ -41,7 +33,7 @@ func (s *Server) handleInboundMessage(ctx context.Context, conn *Conn, params js
 		s.Conns.Broadcast("agent", evt)
 	}
 
-	result, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
+	result, _, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
 		AgentID:   p.AgentID,
 		Channel:   p.Channel,
 		ChatID:    p.ChatID,
@@ -63,13 +55,24 @@ func (s *Server) handleInboundMessage(ctx context.Context, conn *Conn, params js
 	return map[string]any{"text": result}, nil
 }
 
-// handleChatSend processes direct messages from clients.
+// handleChatSend processes direct messages from clients (WebSocket).
 func (s *Server) handleChatSend(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
 	var p ChatSendParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
+	chatID := p.SessionKey
+	if chatID == "" {
+		chatID = conn.ID
+	}
+	eventSink := func(evt agent.Event) {
+		conn.Send(EventFrame("agent", evt.Seq, evt))
+	}
+	return s.runChatSend(ctx, &p, chatID, eventSink)
+}
 
+// runChatSend runs the chat send logic (shared by WebSocket and HTTP API).
+func (s *Server) runChatSend(ctx context.Context, p *ChatSendParams, chatID string, eventSink agent.EventSink) (any, error) {
 	var images []agent.ImageAttachment
 	for _, a := range p.Attach {
 		if a.Type == "image" {
@@ -80,28 +83,22 @@ func (s *Server) handleChatSend(ctx context.Context, conn *Conn, params json.Raw
 			})
 		}
 	}
-
-	eventSink := func(evt agent.Event) {
-		conn.Send(EventFrame("agent", evt.Seq, evt))
-	}
-
-	chatID := p.SessionKey
-	if chatID == "" {
-		chatID = conn.ID
-	}
-
-	result, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
+	chatIDForRouter := WebchatChatID(chatID)
+	result, toolSteps, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
 		AgentID: p.AgentID,
 		Channel: "webchat",
-		ChatID:  chatID,
+		ChatID:  chatIDForRouter,
 		Text:    p.Text,
 		Images:  images,
 	}, eventSink)
 	if err != nil {
 		return nil, err
 	}
-
-	return map[string]any{"text": result}, nil
+	out := map[string]any{"text": result}
+	if len(toolSteps) > 0 {
+		out["toolSteps"] = toolSteps
+	}
+	return out, nil
 }
 
 // handleChatHistory returns the conversation history for a session.
@@ -112,17 +109,16 @@ func (s *Server) handleChatHistory(ctx context.Context, conn *Conn, params json.
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-
-	entry := s.Router.Store().Get(p.SessionKey)
+	storageKey := ToStorageKey(p.SessionKey)
+	entry := s.Router.Store().Get(storageKey)
 	if entry == nil {
 		return map[string]any{"messages": []any{}}, nil
 	}
 
-	transcriptPath := s.Router.Store().TranscriptPath(p.SessionKey)
+	transcriptPath := s.Router.Store().TranscriptPath(storageKey)
 	_ = transcriptPath
 
-	// Load messages from transcript
-	messages, err := loadTranscriptMessages(s.Router.Store().TranscriptPath(p.SessionKey))
+	messages, err := loadTranscriptMessages(s.Router.Store().TranscriptPath(storageKey))
 	if err != nil {
 		return nil, err
 	}
@@ -149,13 +145,17 @@ func loadTranscriptMessages(path string) ([]llmpkg.Message, error) {
 	return t.load()
 }
 
-// handleSessionsList returns all sessions.
+// handleSessionsList returns all sessions. For webchat sessions, sessionKey 转为客户端格式便于前端展示和拉历史。
 func (s *Server) handleSessionsList(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
 	entries := s.Router.Store().List()
 	sessions := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
+		displayKey := e.SessionKey
+		if ck := ToClientKey(e.SessionKey); ck != "" {
+			displayKey = ck
+		}
 		sessions = append(sessions, map[string]any{
-			"sessionKey":   e.SessionKey,
+			"sessionKey":   displayKey,
 			"agentId":      e.AgentID,
 			"createdAt":    e.CreatedAt,
 			"updatedAt":    e.UpdatedAt,
@@ -174,4 +174,44 @@ func (s *Server) handleHealthMethod(ctx context.Context, conn *Conn, params json
 		"bridges": s.Conns.ListBridges(),
 		"clients": s.Conns.ClientCount(),
 	}, nil
+}
+
+// handleConfigGet returns current config for the management UI (secrets redacted).
+func (s *Server) handleConfigGet(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
+	return s.configForUI(), nil
+}
+
+func (s *Server) configForUI() map[string]any {
+	redact := func(s string) string {
+		if s == "" {
+			return ""
+		}
+		return "***"
+	}
+	out := map[string]any{
+		"configPath": s.ConfigPath,
+		"gateway": map[string]any{
+			"port": s.Config.Gateway.Port,
+			"auth": map[string]any{
+				"token":    redact(s.Config.Gateway.Auth.Token),
+				"password": redact(s.Config.Gateway.Auth.Password),
+			},
+		},
+		"agents":   s.Config.Agents,
+		"message":  s.Config.Message,
+		"session":  s.Config.Session,
+		"cron":     s.Config.Cron,
+		"memory":   s.Config.Memory,
+		"tools":    s.Config.Tools,
+	}
+	providers := make(map[string]any)
+	for k, p := range s.Config.Providers {
+		providers[k] = map[string]any{
+			"apiKey":  redact(p.APIKey),
+			"baseURL": p.BaseURL,
+			"type":    p.Type,
+		}
+	}
+	out["providers"] = providers
+	return out
 }

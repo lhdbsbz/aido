@@ -3,14 +3,14 @@ package config
 import "time"
 
 type Config struct {
-	Gateway   GatewayConfig            `yaml:"gateway"`
-	Agents    map[string]AgentConfig   `yaml:"agents"`
+	Gateway   GatewayConfig             `yaml:"gateway"`
+	Agents    map[string]AgentConfig    `yaml:"agents"`
 	Providers map[string]ProviderConfig `yaml:"providers"`
-	Message   MessageConfig            `yaml:"message"`
-	Session   SessionConfig            `yaml:"session"`
-	Cron      CronConfig               `yaml:"cron"`
-	Memory    MemoryConfig             `yaml:"memory"`
-	Tools     ToolsConfig              `yaml:"tools"`
+	Message   MessageConfig             `yaml:"message"`
+	Session   SessionConfig             `yaml:"session"`
+	Cron      CronConfig                `yaml:"cron"`
+	Memory    MemoryConfig              `yaml:"memory"`
+	Tools     ToolsConfig               `yaml:"tools"`
 }
 
 type GatewayConfig struct {
@@ -114,7 +114,7 @@ type MCPServerConfig struct {
 	Command   string            `yaml:"command"`
 	Args      []string          `yaml:"args"`
 	URL       string            `yaml:"url"`
-	Transport string            `yaml:"transport"` // "stdio" | "http"
+	Transport string            `yaml:"transport"`
 	Env       map[string]string `yaml:"env"`
 }
 

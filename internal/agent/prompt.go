@@ -21,6 +21,7 @@ type PromptBuilder struct {
 	ToolDefs    []llm.ToolDef
 	Skills      []SkillEntry
 	Workspace   string
+	ConfigPath  string
 }
 
 // SkillEntry represents a loaded skill for prompt injection.
@@ -124,6 +125,10 @@ func (b *PromptBuilder) writeRuntime(sb *strings.Builder) {
 	fmt.Fprintf(sb, "- Time: %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
 	if b.Workspace != "" {
 		fmt.Fprintf(sb, "- Workspace: %s\n", b.Workspace)
+	}
+	if b.ConfigPath != "" {
+		fmt.Fprintf(sb, "- Config file: %s\n", b.ConfigPath)
+		sb.WriteString("  You can read or edit this file to change agent behavior (e.g. model, tools, skills). Changes take effect after Aido restarts.\n")
 	}
 	sb.WriteString("\n")
 }

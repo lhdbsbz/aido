@@ -13,6 +13,7 @@ import (
 	"github.com/lhdbsbz/aido/internal/config"
 	"github.com/lhdbsbz/aido/internal/gateway"
 	"github.com/lhdbsbz/aido/internal/llm"
+	"github.com/lhdbsbz/aido/internal/mcp"
 	"github.com/lhdbsbz/aido/internal/session"
 	"github.com/lhdbsbz/aido/internal/skills"
 	"github.com/lhdbsbz/aido/internal/tool"
@@ -86,10 +87,37 @@ func serve() error {
 		defaultWorkspace = agentCfg.Workspace
 	}
 
+	// 注册内置工具
 	registry := tool.NewRegistry()
 	tool.RegisterFSTools(registry, defaultWorkspace)
 	tool.RegisterExecTools(registry, defaultWorkspace)
-	tool.RegisterWebTools(registry, "")
+	tool.RegisterWebTools(registry)
+
+	// 注册MCP
+	if len(cfg.Tools.MCP) > 0 {
+		mcpClient := mcp.NewClient()
+		for _, srv := range cfg.Tools.MCP {
+			name := srv.Name
+			if name == "" {
+				name = "mcp"
+			}
+			if srv.Transport == "http" || srv.URL != "" {
+				slog.Warn("MCP HTTP transport not implemented, skipping", "name", name)
+				continue
+			}
+			envSlice := make([]string, 0, len(srv.Env))
+			for k, v := range srv.Env {
+				envSlice = append(envSlice, k+"="+v)
+			}
+			transport := mcp.NewStdioTransport(srv.Command, srv.Args, envSlice, home)
+			if err := mcpClient.AddServer(context.Background(), name, transport); err != nil {
+				slog.Warn("failed to add MCP server", "name", name, "error", err)
+				continue
+			}
+			slog.Info("MCP server added", "name", name)
+		}
+		mcpClient.RegisterTools(registry)
+	}
 
 	// Build default policy
 	var globalPolicy tool.PolicyLayer
@@ -112,7 +140,7 @@ func serve() error {
 	}
 
 	// Initialize router
-	router := agent.NewRouter(loop, cfg, store)
+	router := agent.NewRouter(loop, cfg, store, cfgPath)
 
 	// Load skills
 	for agentID, agentCfg := range cfg.Agents {
@@ -143,6 +171,6 @@ func serve() error {
 		cancel()
 	}()
 
-	srv := gateway.NewServer(cfg, router)
+	srv := gateway.NewServer(cfg, router, cfgPath)
 	return srv.Start(ctx)
 }

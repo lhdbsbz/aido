@@ -15,6 +15,13 @@ const (
 	EventTypeDone         = "done"
 )
 
+// ToolStep represents one tool invocation (for API response and history).
+type ToolStep struct {
+	ToolName   string `json:"toolName"`
+	ToolParams string `json:"toolParams"`
+	ToolResult string `json:"toolResult"`
+}
+
 // Event is a structured event emitted by the Agent Loop.
 // Gateway broadcasts these to connected clients/bridges.
 type Event struct {

@@ -1,5 +1,7 @@
 package tool
 
+import "strings"
+
 // PolicyLayer represents one layer of tool access control.
 type PolicyLayer struct {
 	Profile string   // "minimal" | "coding" | "messaging" | "full"
@@ -42,6 +44,11 @@ func isAllowedByLayer(toolName string, layer PolicyLayer) bool {
 	// Deny always wins
 	if matchAny(toolName, expandedDeny) {
 		return false
+	}
+
+	// MCP tools are named "server:tool" (e.g. MiniMax:web_search). Allow them whenever profile is not minimal.
+	if strings.Contains(toolName, ":") && layer.Profile != "minimal" {
+		return true
 	}
 
 	// If allow is empty (and no profile), allow everything

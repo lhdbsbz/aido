@@ -72,7 +72,7 @@ func (m *SpawnManager) Spawn(parentCtx context.Context, agentID, message string,
 
 	go func() {
 		defer cancel()
-		result, err := m.router.HandleMessage(ctx, InboundMessage{
+		result, _, err := m.router.HandleMessage(ctx, InboundMessage{
 			AgentID: agentID,
 			Channel: "subagent",
 			ChatID:  subID,

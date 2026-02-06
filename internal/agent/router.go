@@ -13,22 +13,24 @@ import (
 
 // Router manages multiple agents and routes messages to the correct one.
 type Router struct {
-	mu       sync.RWMutex
-	loop     *Loop
-	cfg      *config.Config
-	store    *session.Store
-	locks    map[string]*sync.Mutex // sessionKey → mutex (prevent concurrent runs)
-	locksMu  sync.Mutex
-	skills   map[string][]SkillEntry // agentID → skills
+	mu         sync.RWMutex
+	loop       *Loop
+	cfg        *config.Config
+	configPath string
+	store      *session.Store
+	locks      map[string]*sync.Mutex // sessionKey → mutex (prevent concurrent runs)
+	locksMu    sync.Mutex
+	skills     map[string][]SkillEntry // agentID → skills
 }
 
-func NewRouter(loop *Loop, cfg *config.Config, store *session.Store) *Router {
+func NewRouter(loop *Loop, cfg *config.Config, store *session.Store, configPath string) *Router {
 	return &Router{
-		loop:   loop,
-		cfg:    cfg,
-		store:  store,
-		locks:  make(map[string]*sync.Mutex),
-		skills: make(map[string][]SkillEntry),
+		loop:       loop,
+		cfg:        cfg,
+		configPath: configPath,
+		store:      store,
+		locks:      make(map[string]*sync.Mutex),
+		skills:     make(map[string][]SkillEntry),
 	}
 }
 
@@ -41,13 +43,13 @@ func (r *Router) SetSkills(agentID string, skills []SkillEntry) {
 
 // InboundMessage represents a message from a bridge or client.
 type InboundMessage struct {
-	AgentID    string   // target agent (default: "default")
-	Channel    string   // source channel (e.g., "telegram")
-	ChatID     string   // conversation ID
-	SenderID   string   // sender identifier
-	Text       string
-	Images     []ImageAttachment
-	MessageID  string   // for dedup
+	AgentID   string // target agent (default: "default")
+	Channel   string // source channel (e.g., "telegram")
+	ChatID    string // conversation ID
+	SenderID  string // sender identifier
+	Text      string
+	Images    []ImageAttachment
+	MessageID string // for dedup
 }
 
 type ImageAttachment struct {
@@ -56,8 +58,8 @@ type ImageAttachment struct {
 	MIME   string
 }
 
-// HandleMessage routes and processes an inbound message.
-func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSink EventSink) (string, error) {
+// HandleMessage routes and processes an inbound message. Returns final text, tool steps (if any), and error.
+func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSink EventSink) (string, []ToolStep, error) {
 	agentID := msg.AgentID
 	if agentID == "" {
 		agentID = "default"
@@ -69,7 +71,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	r.mu.RUnlock()
 
 	if !ok {
-		return "", fmt.Errorf("agent %q not found", agentID)
+		return "", nil, fmt.Errorf("agent %q not found", agentID)
 	}
 
 	// Derive session key
@@ -109,6 +111,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		ToolDefs:    toolDefs,
 		Skills:      skills,
 		Workspace:   workspace,
+		ConfigPath:  r.configPath,
 	}
 	systemPrompt := promptBuilder.Build()
 
@@ -137,18 +140,20 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	slog.Info("agent run started", "agent", agentID, "session", sessionKey, "channel", msg.Channel)
 	start := time.Now()
 
+	var toolSteps []ToolStep
 	result, err := r.loop.Run(ctx, RunParams{
 		SessionMgr:   mgr,
 		AgentConfig:  &agentCfg,
 		SystemPrompt: systemPrompt,
 		UserMessage:  msg.Text,
 		EventSink:    eventSink,
+		ToolSteps:    &toolSteps,
 	})
 
 	duration := time.Since(start)
 	if err != nil {
 		slog.Error("agent run failed", "agent", agentID, "session", sessionKey, "error", err, "duration", duration)
-		return "", err
+		return "", nil, err
 	}
 
 	slog.Info("agent run completed", "agent", agentID, "session", sessionKey, "duration", duration)
@@ -158,7 +163,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		slog.Warn("failed to save session store", "error", err)
 	}
 
-	return result, nil
+	return result, toolSteps, nil
 }
 
 // DeriveSessionKey creates a deterministic session key.

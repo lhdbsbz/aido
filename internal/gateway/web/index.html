@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Aido 管理</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="header">
+    <h1>Aido</h1>
+    <span class="status" id="status">未连接</span>
+    <input type="password" id="token" placeholder="Gateway Token（无则留空）" class="token-input">
+    <button id="connectBtn">连接</button>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="chat">对话</button>
+    <button class="tab" data-tab="sessions">会话</button>
+    <button class="tab" data-tab="config">配置</button>
+    <button class="tab" data-tab="health">状态</button>
+  </nav>
+
+  <main class="content">
+    <section id="panel-chat" class="panel active">
+      <div class="chat-area">
+        <div id="chatHistory" class="chat-history"></div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" placeholder="输入消息验证对话..." rows="2"></textarea>
+          <button id="sendBtn">发送</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="panel-sessions" class="panel">
+      <div class="sessions-toolbar">
+        <button id="refreshSessions">刷新</button>
+      </div>
+      <div id="sessionsList" class="sessions-list"></div>
+    </section>
+
+    <section id="panel-config" class="panel">
+      <div class="config-toolbar">
+        <button id="refreshConfig">刷新</button>
+      </div>
+      <pre id="configInfo" class="health-info">点击连接后查看（敏感项已脱敏）</pre>
+    </section>
+
+    <section id="panel-health" class="panel">
+      <pre id="healthInfo" class="health-info">点击连接后查看</pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

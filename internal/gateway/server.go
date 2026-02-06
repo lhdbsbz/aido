@@ -2,16 +2,23 @@ package gateway
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/lhdbsbz/aido/internal/agent"
 	"github.com/lhdbsbz/aido/internal/config"
 )
+
+//go:embed web/index.html web/static/*
+var webFS embed.FS
 
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  16 * 1024,
@@ -21,43 +28,53 @@ var upgrader = websocket.Upgrader{
 
 // Server is the Aido gateway server.
 type Server struct {
-	Config  *config.Config
-	Router  *agent.Router
-	Conns   *ConnManager
-	methods map[string]MethodHandler
-	httpSrv *http.Server
-	startAt time.Time
+	Config     *config.Config
+	ConfigPath string
+	Router     *agent.Router
+	Conns      *ConnManager
+	httpSrv    *http.Server
+	startAt    time.Time
 }
 
-// MethodHandler processes a gateway RPC method.
-type MethodHandler func(ctx context.Context, conn *Conn, params json.RawMessage) (any, error)
-
-func NewServer(cfg *config.Config, router *agent.Router) *Server {
+func NewServer(cfg *config.Config, router *agent.Router, configPath string) *Server {
 	s := &Server{
-		Config:  cfg,
-		Router:  router,
-		Conns:   NewConnManager(),
-		methods: make(map[string]MethodHandler),
-		startAt: time.Now(),
+		Config:     cfg,
+		ConfigPath: configPath,
+		Router:     router,
+		Conns:      NewConnManager(),
+		startAt:    time.Now(),
 	}
-	s.registerMethods()
 	return s
 }
 
 // Start begins listening for connections.
 func (s *Server) Start(ctx context.Context) error {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", s.handleWebSocket)
-	mux.HandleFunc("/health", s.handleHealth)
-	// OpenAI compat will be registered in Phase 4 openai.go
+	gin.SetMode(gin.ReleaseMode)
+	engine := gin.New()
+	engine.Use(gin.Recovery())
+
+	engine.GET("/health", s.ginHealth)
+	engine.GET("/ws", s.ginWebSocket)
+	s.registerAPIRoutes(engine)
+	s.RegisterOpenAICompat(engine)
+
+	webRoot, _ := fs.Sub(webFS, "web")
+	staticFS, _ := fs.Sub(webFS, "web/static")
+	engine.StaticFS("/static", http.FS(staticFS))
+	engine.GET("/", s.ginWebIndex(webRoot))
 
 	addr := fmt.Sprintf(":%d", s.Config.Gateway.Port)
 	s.httpSrv = &http.Server{
 		Addr:    addr,
-		Handler: mux,
+		Handler: engine,
 	}
 
 	slog.Info("Aido gateway starting", "port", s.Config.Gateway.Port)
+	uiURL := fmt.Sprintf("http://localhost:%d/", s.Config.Gateway.Port)
+	if t := s.Config.Gateway.Auth.Token; t != "" {
+		uiURL += "#token=" + url.QueryEscape(t)
+	}
+	slog.Info("management UI", "url", uiURL)
 
 	go func() {
 		<-ctx.Done()
@@ -72,9 +89,23 @@ func (s *Server) Start(ctx context.Context) error {
 	return nil
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+func (s *Server) ginWebIndex(webRoot fs.FS) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.Request.URL.Path != "/" {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		data, err := fs.ReadFile(webRoot, "index.html")
+		if err != nil {
+			c.Status(http.StatusNotFound)
+			return
+		}
+		c.Data(http.StatusOK, "text/html; charset=utf-8", data)
+	}
+}
+
+func (s *Server) ginHealth(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
 		"status":  "ok",
 		"uptime":  time.Since(s.startAt).String(),
 		"bridges": len(s.Conns.ListBridges()),
@@ -82,8 +113,8 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
-	ws, err := upgrader.Upgrade(w, r, nil)
+func (s *Server) ginWebSocket(c *gin.Context) {
+	ws, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
 		slog.Error("websocket upgrade failed", "error", err)
 		return
@@ -146,15 +177,14 @@ func (s *Server) handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		handler, ok := s.methods[frame.Method]
-		if !ok {
-			conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", fmt.Sprintf("unknown method: %s", frame.Method)))
+		if frame.Method != "inbound.message" {
+			conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "use HTTP /api for management; only inbound.message is supported over WebSocket"))
 			continue
 		}
 
 		go func(f Frame) {
 			ctx := context.Background()
-			result, err := handler(ctx, conn, f.Params)
+			result, err := s.handleInboundMessage(ctx, conn, f.Params)
 			if err != nil {
 				conn.Send(ResErr(f.ID, "ERROR", err.Error()))
 				return

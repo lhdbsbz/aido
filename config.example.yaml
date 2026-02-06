@@ -1,0 +1,84 @@
+# Aido Configuration
+# Place this file at ~/.aido/config.yaml
+
+gateway:
+  port: 18789
+  auth:
+    token: "${AIDO_TOKEN}"   # set via environment variable
+
+# LLM Providers
+providers:
+  anthropic:
+    apiKey: "${ANTHROPIC_API_KEY}"
+  openai:
+    apiKey: "${OPENAI_API_KEY}"
+  # deepseek:
+  #   apiKey: "${DEEPSEEK_API_KEY}"
+  #   baseURL: "https://api.deepseek.com/v1"
+
+# Agent Definitions
+agents:
+  default:
+    model: "anthropic/claude-sonnet-4-20250514"
+    fallbacks:
+      - "openai/gpt-4o"
+    thinking: "medium"
+    workspace: "./workspace"
+    tools:
+      profile: "coding"    # minimal | coding | messaging | full
+      # allow: ["group:fs", "group:runtime", "group:web"]
+      # deny: ["exec"]
+    compaction:
+      keepRecentTokens: 20000
+      reserveTokens: 16384
+    skills:
+      dirs: ["./workspace/skills"]
+
+  # Example: restricted assistant agent
+  # assistant:
+  #   model: "openai/gpt-4o"
+  #   tools:
+  #     profile: "messaging"
+  #     deny: ["exec"]
+  #   workspace: "./workspaces/assistant"
+
+# Message Handling
+message:
+  dedup:
+    ttl: "30s"
+  debounce:
+    default: "1500ms"
+  queue:
+    mode: "followup"    # collect | followup | steer
+
+# Session Management
+session:
+  dailyReset: "04:00"
+  idleExpiry: "4h"
+
+# Scheduled Tasks
+cron:
+  jobs: []
+  # - name: "morning-briefing"
+  #   schedule: "0 8 * * *"
+  #   agent: "default"
+  #   message: "Give me today's briefing"
+
+# Memory (vector search)
+memory:
+  enabled: false
+  provider: "local"
+
+# MCP Tool Servers
+tools:
+  mcp: []
+  # - name: "github"
+  #   command: "npx"
+  #   args: ["@anthropic/mcp-server-github"]
+  #   transport: "stdio"
+  #   env:
+  #     GITHUB_TOKEN: "${GITHUB_TOKEN}"
+  # - name: "browser"
+  #   command: "npx"
+  #   args: ["@anthropic/mcp-server-puppeteer"]
+  #   transport: "stdio"

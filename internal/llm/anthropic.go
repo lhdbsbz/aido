@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-const anthropicAPIURL = "https://api.anthropic.com/v1/messages"
+const anthropicAPIURL = "https://api.anthropic.com"
 const anthropicAPIVersion = "2023-06-01"
 
 // AnthropicClient implements Client for Anthropic's native API.
@@ -25,9 +25,9 @@ func NewAnthropicClient() *AnthropicClient {
 func (c *AnthropicClient) Chat(ctx context.Context, params ChatParams) (<-chan StreamEvent, error) {
 	endpoint := anthropicAPIURL
 	if params.BaseURL != "" {
-		endpoint = strings.TrimRight(params.BaseURL, "/") + "/v1/messages"
+		endpoint = params.BaseURL
 	}
-
+	endpoint = strings.TrimRight(params.BaseURL, "/") + "/v1/messages"
 	body := c.buildRequest(params)
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {
