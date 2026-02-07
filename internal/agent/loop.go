@@ -58,7 +58,10 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 	if maxIter <= 0 {
 		maxIter = DefaultMaxIterations
 	}
-	contextWindow := l.ContextWindow
+	contextWindow := params.AgentConfig.Compaction.ContextWindow
+	if contextWindow <= 0 {
+		contextWindow = l.ContextWindow
+	}
 	if contextWindow <= 0 {
 		contextWindow = DefaultContextWindow
 	}

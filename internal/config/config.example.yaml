@@ -34,16 +34,7 @@ agents:
       - "openai/gpt-4o"
     workspace: "./workspace"
     compaction:
-      keepRecentTokens: 20000
-      reserveTokens: 16384
-    skills:
-      dirs: ["./workspace/skills"]
-
-  openai:
-    provider: "openai"
-    model: "gpt-4o"
-    workspace: "./workspace"
-    compaction:
+      contextWindow: 200000   # 该模型上下文上限（token），按厂商文档填写，避免超限后再压缩
       keepRecentTokens: 20000
       reserveTokens: 16384
     skills:

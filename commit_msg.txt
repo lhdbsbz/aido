@@ -1,1 +1,1 @@
-feat(gateway): optimize message handling
+feat: update agent loop and config

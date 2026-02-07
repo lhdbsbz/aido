@@ -34,6 +34,7 @@ type AgentToolsConfig struct {
 }
 
 type CompactionConfig struct {
+	ContextWindow    int     `yaml:"contextWindow" json:"contextWindow"`       // 模型上下文上限 token 数，0 表示用默认 200000
 	KeepRecentTokens int     `yaml:"keepRecentTokens" json:"keepRecentTokens"`
 	ReserveTokens    int     `yaml:"reserveTokens" json:"reserveTokens"`
 	ChunkRatio       float64 `yaml:"chunkRatio" json:"chunkRatio"`
@@ -92,6 +93,7 @@ func DefaultConfig() *Config {
 				Model:    "claude-sonnet-4-20250514",
 				Tools:    AgentToolsConfig{},
 				Compaction: CompactionConfig{
+					ContextWindow:    0,
 					KeepRecentTokens: 20000,
 					ReserveTokens:    16384,
 					ChunkRatio:       0.4,
@@ -102,6 +104,7 @@ func DefaultConfig() *Config {
 				Model:    "gpt-4o",
 				Tools:    AgentToolsConfig{},
 				Compaction: CompactionConfig{
+					ContextWindow:    0,
 					KeepRecentTokens: 20000,
 					ReserveTokens:    16384,
 					ChunkRatio:       0.4,

@@ -264,6 +264,8 @@
 
   function appendAgentBlock(container, name, a, providerNames) {
     a = a || {};
+    var comp = a.compaction || {};
+    var contextWindowK = (comp.contextWindow > 0) ? String(Math.round(comp.contextWindow / 1000)) : '';
     var providerNamesList = providerNames && providerNames.length ? providerNames : ['anthropic', 'openai'];
     var id = 'agent-' + (Date.now().toString(36) + Math.random().toString(36).slice(2));
     var listP = id + '-provider';
@@ -275,7 +277,8 @@
     div.className = 'config-block';
     div.innerHTML = '<div class="config-block-row-head"><label>名称 <input type="text" class="config-agent-name" value="' + escapeHtml(name || '') + '" placeholder="如 default"></label><button type="button" class="config-block-remove">删除</button></div>' +
       '<label>绑定 Provider <input type="text" class="config-agent-provider" data-input-select="' + listP + '" autocomplete="off" value="' + escapeHtml(providerVal) + '" placeholder="如 anthropic"></label><datalist id="' + listP + '">' + buildDatalistOptions(providerNamesList) + '</datalist>' +
-      '<label>模型 <input type="text" class="config-agent-model" data-input-select="' + listM + '" autocomplete="off" value="' + escapeHtml(modelVal) + '" placeholder="选或输入模型 ID"></label><datalist id="' + listM + '">' + buildDatalistOptions(modelList) + '</datalist>';
+      '<label>模型 <input type="text" class="config-agent-model" data-input-select="' + listM + '" autocomplete="off" value="' + escapeHtml(modelVal) + '" placeholder="选或输入模型 ID"></label><datalist id="' + listM + '">' + buildDatalistOptions(modelList) + '</datalist>' +
+      '<label>上下文上限 (k) <input type="number" class="config-agent-context-window-k" min="1" step="1" value="' + escapeHtml(contextWindowK) + '" placeholder="如 200"></label>';
     container.appendChild(div);
     div.querySelector('.config-agent-provider').addEventListener('input', function () {
       var listEl = document.getElementById(listM);
@@ -964,12 +967,19 @@
       var provider = getAgentProvider(block);
       var modelId = getAgentModelId(block);
       var base = (currentConfig && currentConfig.agents && currentConfig.agents[name]) || {};
+      var comp = Object.assign({}, base.compaction || {});
+      comp.contextWindow = 0;
+      var ctxKEl = block.querySelector('.config-agent-context-window-k');
+      if (ctxKEl && ctxKEl.value.trim() !== '') {
+        var k = parseInt(ctxKEl.value.trim(), 10);
+        if (!isNaN(k) && k > 0) comp.contextWindow = k * 1000;
+      }
       cfg.agents[name] = {
         provider: provider,
         model: modelId,
         tools: { allow: base.tools && base.tools.allow, deny: base.tools && base.tools.deny },
         fallbacks: base.fallbacks,
-        compaction: base.compaction,
+        compaction: comp,
         workspace: base.workspace,
         skills: base.skills
       };
