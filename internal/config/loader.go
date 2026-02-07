@@ -9,9 +9,45 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"gopkg.in/yaml.v3"
 )
+
+var current atomic.Pointer[Config]
+
+var (
+	onReloadMu      sync.Mutex
+	onReloadCallbacks []func(*Config)
+)
+
+// Get returns the current in-memory config (hot-reloaded when the file changes).
+func Get() *Config { return current.Load() }
+
+// Set sets the current in-memory config. Used at startup and by the file watcher.
+func Set(c *Config) {
+	if c != nil {
+		current.Store(c)
+	}
+}
+
+// RegisterOnReload registers a callback that runs after config is hot-reloaded (e.g. for MCP, skills).
+func RegisterOnReload(fn func(*Config)) {
+	onReloadMu.Lock()
+	defer onReloadMu.Unlock()
+	onReloadCallbacks = append(onReloadCallbacks, fn)
+}
+
+func notifyReload(cfg *Config) {
+	onReloadMu.Lock()
+	cb := make([]func(*Config), len(onReloadCallbacks))
+	copy(cb, onReloadCallbacks)
+	onReloadMu.Unlock()
+	for _, fn := range cb {
+		fn(cfg)
+	}
+}
 
 //go:embed config.example.yaml
 var exampleConfigBytes []byte
@@ -82,6 +118,12 @@ func ResolveConfigPath(flagPath string) string {
 	return filepath.Join(ResolveHome(), "config.yaml")
 }
 
+// Path returns the process-wide config file path (ResolveConfigPath("")).
+// All components should use this instead of receiving the path by parameter.
+func Path() string {
+	return ResolveConfigPath("")
+}
+
 // GenerateToken returns a random hex token (32 bytes = 64 chars) for gateway auth.
 func GenerateToken() string {
 	b := make([]byte, 32)
@@ -134,4 +176,32 @@ func ResolveProvider(cfg *Config, modelRef string) (provider string, model strin
 		return "", "", ProviderConfig{}, fmt.Errorf("provider %q not configured", provider)
 	}
 	return provider, model, provCfg, nil
+}
+
+// ResolveProviderForAgent returns provider config and model for an agent (uses agent.Provider + agent.Model).
+// If agent.Provider is set, model is agent.Model; otherwise Model is parsed as "provider/model" for backward compat.
+func ResolveProviderForAgent(cfg *Config, agent *AgentConfig) (provider string, model string, provCfg ProviderConfig, err error) {
+	if agent.Provider != "" {
+		provCfg, ok := cfg.Providers[agent.Provider]
+		if !ok {
+			return "", "", ProviderConfig{}, fmt.Errorf("provider %q not configured", agent.Provider)
+		}
+		return agent.Provider, agent.Model, provCfg, nil
+	}
+	return ResolveProvider(cfg, agent.Model)
+}
+
+// ResolveProviderWithDefault resolves modelRef: if it contains "/" then "provider/model", else defaultProvider + "/" + modelRef.
+func ResolveProviderWithDefault(cfg *Config, modelRef, defaultProvider string) (provider string, model string, provCfg ProviderConfig, err error) {
+	if strings.Contains(modelRef, "/") {
+		return ResolveProvider(cfg, modelRef)
+	}
+	if defaultProvider == "" {
+		return "", "", ProviderConfig{}, fmt.Errorf("model ref %q has no provider and no default", modelRef)
+	}
+	provCfg, ok := cfg.Providers[defaultProvider]
+	if !ok {
+		return "", "", ProviderConfig{}, fmt.Errorf("provider %q not configured", defaultProvider)
+	}
+	return defaultProvider, modelRef, provCfg, nil
 }

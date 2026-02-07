@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/lhdbsbz/aido/internal/config"
@@ -33,6 +34,11 @@ type Loop struct {
 
 	MaxIterations int
 	ContextWindow int
+}
+
+// SetPolicy updates the tool policy (e.g. after config hot-reload).
+func (l *Loop) SetPolicy(p *tool.Policy) {
+	l.Policy = p
 }
 
 // RunParams holds parameters for a single agent run.
@@ -78,8 +84,8 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 		slog.Warn("failed to append user message to transcript", "error", err)
 	}
 
-	// Resolve provider and model
-	provider, model, provCfg, err := config.ResolveProvider(l.Config, params.AgentConfig.Model)
+	// Resolve provider and model from agent config (agent.Provider + agent.Model)
+	provider, model, provCfg, err := config.ResolveProviderForAgent(config.Get(), params.AgentConfig)
 	if err != nil {
 		return "", fmt.Errorf("resolve provider: %w", err)
 	}
@@ -213,10 +219,16 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 func (l *Loop) callWithFallback(ctx context.Context, params llm.ChatParams, agentCfg *config.AgentConfig, emitter *EventEmitter) (*llm.StreamResult, error) {
 	candidates := []string{agentCfg.Model}
 	candidates = append(candidates, agentCfg.Fallbacks...)
+	defaultProvider := agentCfg.Provider
+	if defaultProvider == "" && strings.Contains(agentCfg.Model, "/") {
+		if p, _, _, e := config.ResolveProvider(config.Get(), agentCfg.Model); e == nil {
+			defaultProvider = p
+		}
+	}
 
 	var lastErr error
 	for _, modelRef := range candidates {
-		provider, model, provCfg, err := config.ResolveProvider(l.Config, modelRef)
+		provider, model, provCfg, err := config.ResolveProviderWithDefault(config.Get(), modelRef, defaultProvider)
 		if err != nil {
 			lastErr = err
 			continue
@@ -324,8 +336,10 @@ func (l *Loop) consumeWithEvents(ctx context.Context, stream <-chan llm.StreamEv
 // resolveClient picks the right LLM client based on provider config.
 func (l *Loop) resolveClient(provider string) llm.Client {
 	clientType := "openai"
-	if provCfg, ok := l.Config.Providers[provider]; ok {
-		clientType = provCfg.ClientType(provider)
+	if cfg := config.Get(); cfg != nil {
+		if provCfg, ok := cfg.Providers[provider]; ok {
+			clientType = provCfg.ClientType(provider)
+		}
 	}
 	if clientType == "anthropic" {
 		if l.Anthropic == nil {

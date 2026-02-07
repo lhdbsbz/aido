@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/lhdbsbz/aido/internal/agent"
+	"github.com/lhdbsbz/aido/internal/config"
 	llmpkg "github.com/lhdbsbz/aido/internal/llm"
 )
 
@@ -175,42 +176,45 @@ func (s *Server) handleHealthMethod(ctx context.Context, conn *Conn, params json
 	}, nil
 }
 
-// handleConfigGet returns current config for the management UI (secrets redacted).
+// handleConfigGet returns current config for the management UI (read from file).
 func (s *Server) handleConfigGet(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
-	return s.configForUI(), nil
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		return nil, err
+	}
+	return configForUIFromCfg(cfg), nil
 }
 
-func (s *Server) configForUI() map[string]any {
-	redact := func(s string) string {
-		if s == "" {
-			return ""
-		}
-		return "***"
-	}
+func configForUIFromCfg(cfg *config.Config) map[string]any {
 	out := map[string]any{
-		"configPath": s.ConfigPath,
+		"configPath": config.Path(),
 		"gateway": map[string]any{
-			"port": s.Config.Gateway.Port,
+			"port":         cfg.Gateway.Port,
+			"currentAgent": cfg.Gateway.CurrentAgent,
+			"toolsProfile": cfg.Gateway.ToolsProfile,
 			"auth": map[string]any{
-				"token":    redact(s.Config.Gateway.Auth.Token),
-				"password": redact(s.Config.Gateway.Auth.Password),
+				"token": cfg.Gateway.Auth.Token,
 			},
 		},
-		"agents":   s.Config.Agents,
-		"message":  s.Config.Message,
-		"session":  s.Config.Session,
-		"cron":     s.Config.Cron,
-		"memory":   s.Config.Memory,
-		"tools":    s.Config.Tools,
+		"agents":    cfg.Agents,
+		"tools":     cfg.Tools,
 	}
 	providers := make(map[string]any)
-	for k, p := range s.Config.Providers {
+	for k, p := range cfg.Providers {
 		providers[k] = map[string]any{
-			"apiKey":  redact(p.APIKey),
+			"apiKey":  p.APIKey,
 			"baseURL": p.BaseURL,
 			"type":    p.Type,
 		}
 	}
 	out["providers"] = providers
 	return out
+}
+
+func (s *Server) configForUI() map[string]any {
+	cfg := config.Get()
+	if cfg == nil {
+		return map[string]any{"configPath": config.Path(), "gateway": map[string]any{}, "agents": map[string]any{}, "providers": map[string]any{}, "tools": map[string]any{}}
+	}
+	return configForUIFromCfg(cfg)
 }

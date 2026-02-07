@@ -42,8 +42,52 @@
     <section id="panel-config" class="panel">
       <div class="config-toolbar">
         <button id="refreshConfig">刷新</button>
+        <button id="saveConfig" class="config-save-btn">保存</button>
       </div>
-      <pre id="configInfo" class="health-info">点击连接后查看（敏感项已脱敏）</pre>
+      <p id="configMessage" class="config-message"></p>
+      <p class="config-path-hint">配置文件路径：<span id="configPathDisplay"></span></p>
+
+      <div class="config-layout">
+        <nav class="config-nav">
+          <a href="#config-section-gateway" class="config-nav-item">网关</a>
+          <a href="#config-section-agents" class="config-nav-item">Agents</a>
+          <a href="#config-section-providers" class="config-nav-item">Providers</a>
+          <a href="#config-section-tools" class="config-nav-item">工具 MCP</a>
+        </nav>
+        <div class="config-body">
+      <div id="config-section-gateway" class="config-section">
+        <h3 class="config-section-title">网关</h3>
+        <div class="config-form">
+          <label>端口 <input type="number" id="configGatewayPort" min="1" max="65535" placeholder="19800"></label>
+          <label>当前 Agent <input type="text" id="configGatewayCurrentAgent" data-input-select="gateway-current-agent-list" autocomplete="off" placeholder="如 default"><span class="config-hint-inline">固定使用该 agent；可输入或从列表选</span></label>
+          <datalist id="gateway-current-agent-list"></datalist>
+          <label>Tools Profile <input type="text" id="configGatewayToolsProfile" data-input-select="gateway-tools-profile-list" autocomplete="off" placeholder="coding"><span class="config-hint-inline">全局工具集档位；可输入或选 minimal/coding/messaging/full</span></label>
+          <datalist id="gateway-tools-profile-list"><option value="minimal"><option value="coding"><option value="messaging"><option value="full"></datalist>
+          <label>认证 Token <input type="text" id="configGatewayToken" placeholder="可选，无则留空表示不校验"></label>
+        </div>
+      </div>
+
+      <div id="config-section-agents" class="config-section">
+        <h3 class="config-section-title">Agents</h3>
+        <p class="config-section-hint">可配置多个；每个 agent 绑定一个 provider。当前使用哪个 agent 在「网关 → 当前 Agent」里指定。</p>
+        <div id="configAgents"></div>
+        <button type="button" id="configAgentAdd" class="config-add-btn">添加 Agent</button>
+      </div>
+
+      <div id="config-section-providers" class="config-section">
+        <h3 class="config-section-title">Providers</h3>
+        <p class="config-section-hint">可配置多个；baseURL 与 type 已为常见服务填好，只需填 API Key。可自行增加 provider。</p>
+        <div id="configProviders"></div>
+        <button type="button" id="configProviderAdd" class="config-add-btn">添加 Provider</button>
+      </div>
+
+      <div id="config-section-tools" class="config-section">
+        <h3 class="config-section-title">工具 MCP（Tools）</h3>
+        <div id="configMCP"></div>
+        <button type="button" id="configMCPAdd" class="config-add-btn">添加 MCP 服务</button>
+      </div>
+        </div>
+      </div>
     </section>
 
     <section id="panel-health" class="panel">

@@ -68,7 +68,7 @@ func serve() error {
 	}
 
 	// Load config; if missing, create from embedded example (token replaced) then load
-	cfgPath := config.ResolveConfigPath("")
+	cfgPath := config.Path()
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -85,6 +85,7 @@ func serve() error {
 			cfg = config.DefaultConfig()
 		}
 	}
+	config.Set(cfg)
 
 	// Initialize session store
 	sessionDir := filepath.Join(home, "data", "sessions")
@@ -108,14 +109,15 @@ func serve() error {
 	mcpClient := mcp.NewClient()
 	reloadMCP(context.Background(), cfg, mcpClient, registry, home)
 
-	// Build default policy
-	var globalPolicy tool.PolicyLayer
+	// Build global policy from gateway.toolsProfile
+	profile := cfg.Gateway.ToolsProfile
+	if profile == "" {
+		profile = "coding"
+	}
+	globalPolicy := tool.PolicyLayer{Profile: profile}
 	if agentCfg, ok := cfg.Agents["default"]; ok {
-		globalPolicy = tool.PolicyLayer{
-			Profile: agentCfg.Tools.Profile,
-			Allow:   agentCfg.Tools.Allow,
-			Deny:    agentCfg.Tools.Deny,
-		}
+		globalPolicy.Allow = agentCfg.Tools.Allow
+		globalPolicy.Deny = agentCfg.Tools.Deny
 	}
 	policy := tool.NewPolicy(globalPolicy)
 
@@ -129,8 +131,27 @@ func serve() error {
 	}
 
 	// Initialize router
-	router := agent.NewRouter(loop, cfg, store, cfgPath)
+	router := agent.NewRouter(loop, store)
 	reloadSkills(cfg, router, defaultWorkspace)
+
+	config.RegisterOnReload(func(cfg *config.Config) {
+		reloadMCP(context.Background(), cfg, mcpClient, registry, home)
+		dw := filepath.Join(home, "workspace")
+		if agentCfg, ok := cfg.Agents["default"]; ok && agentCfg.Workspace != "" {
+			dw = agentCfg.Workspace
+		}
+		reloadSkills(cfg, router, dw)
+		profile := cfg.Gateway.ToolsProfile
+		if profile == "" {
+			profile = "coding"
+		}
+		layer := tool.PolicyLayer{Profile: profile}
+		if agentCfg, ok := cfg.Agents["default"]; ok {
+			layer.Allow = agentCfg.Tools.Allow
+			layer.Deny = agentCfg.Tools.Deny
+		}
+		loop.SetPolicy(tool.NewPolicy(layer))
+	})
 
 	// Start gateway with graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -144,7 +165,7 @@ func serve() error {
 		cancel()
 	}()
 
-	srv := gateway.NewServer(cfg, router, cfgPath)
+	srv := gateway.NewServer(router)
 	return srv.Start(ctx)
 }
 
@@ -159,7 +180,21 @@ func reloadMCP(ctx context.Context, cfg *config.Config, mcpClient *mcp.Client, r
 			name = "mcp"
 		}
 		if srv.Transport == "http" || srv.URL != "" {
-			slog.Warn("MCP HTTP transport not implemented, skipping", "name", name)
+			sseURL := srv.URL
+			if sseURL == "" {
+				slog.Warn("MCP HTTP transport requires url", "name", name)
+				continue
+			}
+			headers := make(map[string]string, len(srv.Env))
+			for k, v := range srv.Env {
+				headers[k] = v
+			}
+			transport := mcp.NewHTTPTransport(sseURL, headers)
+			if err := mcpClient.AddServer(ctx, name, transport); err != nil {
+				slog.Warn("failed to add MCP server (HTTP)", "name", name, "error", err)
+				continue
+			}
+			slog.Info("MCP server added (HTTP)", "name", name)
 			continue
 		}
 		envSlice := make([]string, 0, len(srv.Env))

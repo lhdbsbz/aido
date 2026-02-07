@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lhdbsbz/aido/internal/agent"
+	"github.com/lhdbsbz/aido/internal/config"
 )
 
 // RegisterOpenAICompat registers OpenAI-compatible /v1/chat/completions on the Gin engine.
@@ -49,7 +50,15 @@ func (s *Server) ginOpenAIChatCompletions(c *gin.Context) {
 		return
 	}
 
-	agentID := req.Model
+	cfg := config.Get()
+	if cfg == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "config not loaded"})
+		return
+	}
+	agentID := cfg.Gateway.CurrentAgent
+	if agentID == "" {
+		agentID = req.Model
+	}
 	if agentID == "aido" || agentID == "" {
 		agentID = "default"
 	}

@@ -1,58 +1,53 @@
 package config
 
-import "time"
-
 type Config struct {
-	Gateway   GatewayConfig             `yaml:"gateway"`
-	Agents    map[string]AgentConfig    `yaml:"agents"`
-	Providers map[string]ProviderConfig `yaml:"providers"`
-	Message   MessageConfig             `yaml:"message"`
-	Session   SessionConfig             `yaml:"session"`
-	Cron      CronConfig                `yaml:"cron"`
-	Memory    MemoryConfig              `yaml:"memory"`
-	Tools     ToolsConfig               `yaml:"tools"`
+	Gateway   GatewayConfig             `yaml:"gateway" json:"gateway"`
+	Agents    map[string]AgentConfig    `yaml:"agents" json:"agents"`
+	Providers map[string]ProviderConfig `yaml:"providers" json:"providers"`
+	Tools     ToolsConfig               `yaml:"tools" json:"tools"`
 }
 
 type GatewayConfig struct {
-	Port int        `yaml:"port"`
-	Auth AuthConfig `yaml:"auth"`
+	Port         int        `yaml:"port" json:"port"`
+	Auth         AuthConfig `yaml:"auth" json:"auth"`
+	CurrentAgent string     `yaml:"currentAgent" json:"currentAgent"`   // 固定使用的 agent，空则可由请求指定
+	ToolsProfile string     `yaml:"toolsProfile" json:"toolsProfile"`   // 全局工具集档位：minimal | coding | messaging | full
 }
 
 type AuthConfig struct {
-	Token    string `yaml:"token"`
-	Password string `yaml:"password"`
+	Token string `yaml:"token" json:"token"`
 }
 
 type AgentConfig struct {
-	Model      string           `yaml:"model"`
-	Fallbacks  []string         `yaml:"fallbacks"`
-	Thinking   string           `yaml:"thinking"`
-	Tools      AgentToolsConfig `yaml:"tools"`
-	Compaction CompactionConfig `yaml:"compaction"`
-	Workspace  string           `yaml:"workspace"`
-	Skills     SkillsConfig     `yaml:"skills"`
+	Provider   string           `yaml:"provider" json:"provider"`     // 绑定的 provider（providers 的 key）
+	Model      string           `yaml:"model" json:"model"`          // 模型 id（如 claude-sonnet-4-20250514）
+	Fallbacks  []string         `yaml:"fallbacks" json:"fallbacks"`  // 备选，可为 "modelId" 或 "provider/modelId"
+	Thinking   string           `yaml:"thinking" json:"thinking"`
+	Tools      AgentToolsConfig `yaml:"tools" json:"tools"`
+	Compaction CompactionConfig `yaml:"compaction" json:"compaction"`
+	Workspace  string           `yaml:"workspace" json:"workspace"`
+	Skills     SkillsConfig     `yaml:"skills" json:"skills"`
 }
 
 type AgentToolsConfig struct {
-	Profile string   `yaml:"profile"`
-	Allow   []string `yaml:"allow"`
-	Deny    []string `yaml:"deny"`
+	Allow []string `yaml:"allow" json:"allow"`
+	Deny  []string `yaml:"deny" json:"deny"`
 }
 
 type CompactionConfig struct {
-	KeepRecentTokens int     `yaml:"keepRecentTokens"`
-	ReserveTokens    int     `yaml:"reserveTokens"`
-	ChunkRatio       float64 `yaml:"chunkRatio"`
+	KeepRecentTokens int     `yaml:"keepRecentTokens" json:"keepRecentTokens"`
+	ReserveTokens    int     `yaml:"reserveTokens" json:"reserveTokens"`
+	ChunkRatio       float64 `yaml:"chunkRatio" json:"chunkRatio"`
 }
 
 type SkillsConfig struct {
-	Dirs []string `yaml:"dirs"`
+	Dirs []string `yaml:"dirs" json:"dirs"`
 }
 
 type ProviderConfig struct {
-	APIKey  string `yaml:"apiKey"`
-	BaseURL string `yaml:"baseURL"`
-	Type    string `yaml:"type"` // "openai" | "anthropic" (default: inferred from provider name)
+	APIKey  string `yaml:"apiKey" json:"apiKey"`
+	BaseURL string `yaml:"baseURL" json:"baseURL"`
+	Type    string `yaml:"type" json:"type"` // "openai" | "anthropic" (default: inferred from provider name)
 }
 
 // ClientType returns which LLM client to use for this provider.
@@ -66,85 +61,55 @@ func (p ProviderConfig) ClientType(providerName string) string {
 	return "openai"
 }
 
-type MessageConfig struct {
-	Dedup    DedupConfig    `yaml:"dedup"`
-	Debounce DebounceConfig `yaml:"debounce"`
-	Queue    QueueConfig    `yaml:"queue"`
-}
-
-type DedupConfig struct {
-	TTL time.Duration `yaml:"ttl"`
-}
-
-type DebounceConfig struct {
-	Default time.Duration `yaml:"default"`
-}
-
-type QueueConfig struct {
-	Mode string `yaml:"mode"` // "collect" | "followup" | "steer"
-}
-
-type SessionConfig struct {
-	DailyReset string        `yaml:"dailyReset"`
-	IdleExpiry time.Duration `yaml:"idleExpiry"`
-}
-
-type CronConfig struct {
-	Jobs []CronJobConfig `yaml:"jobs"`
-}
-
-type CronJobConfig struct {
-	Name     string `yaml:"name"`
-	Schedule string `yaml:"schedule"`
-	Agent    string `yaml:"agent"`
-	Message  string `yaml:"message"`
-}
-
-type MemoryConfig struct {
-	Enabled  bool   `yaml:"enabled"`
-	Provider string `yaml:"provider"`
-}
-
 type ToolsConfig struct {
-	MCP []MCPServerConfig `yaml:"mcp"`
+	MCP []MCPServerConfig `yaml:"mcp" json:"mcp"`
 }
 
 type MCPServerConfig struct {
-	Name      string            `yaml:"name"`
-	Command   string            `yaml:"command"`
-	Args      []string          `yaml:"args"`
-	URL       string            `yaml:"url"`
-	Transport string            `yaml:"transport"`
-	Env       map[string]string `yaml:"env"`
+	Name      string            `yaml:"name" json:"name"`
+	Command   string            `yaml:"command" json:"command"`
+	Args      []string          `yaml:"args" json:"args"`
+	URL       string            `yaml:"url" json:"url"`
+	Transport string            `yaml:"transport" json:"transport"`
+	Env       map[string]string `yaml:"env" json:"env"`
 }
 
 func DefaultConfig() *Config {
 	return &Config{
 		Gateway: GatewayConfig{
-			Port: 19800,
+			Port:         19800,
+			CurrentAgent: "default",
+			ToolsProfile: "coding",
+		},
+		Providers: map[string]ProviderConfig{
+			"anthropic": { Type: "anthropic" },
+			"openai":    { Type: "openai" },
+			"deepseek":  { BaseURL: "https://api.deepseek.com", Type: "openai" },
+			"minimax":   { BaseURL: "https://api.minimaxi.com/anthropic", Type: "anthropic" }, // 国内默认；海外用 https://api.minimax.io/anthropic
 		},
 		Agents: map[string]AgentConfig{
 			"default": {
-				Model:    "anthropic/claude-sonnet-4-20250514",
+				Provider: "anthropic",
+				Model:    "claude-sonnet-4-20250514",
 				Thinking: "medium",
-				Tools: AgentToolsConfig{
-					Profile: "coding",
-				},
+				Tools:    AgentToolsConfig{},
 				Compaction: CompactionConfig{
 					KeepRecentTokens: 20000,
 					ReserveTokens:    16384,
 					ChunkRatio:       0.4,
 				},
 			},
-		},
-		Message: MessageConfig{
-			Dedup:    DedupConfig{TTL: 30 * time.Second},
-			Debounce: DebounceConfig{Default: 1500 * time.Millisecond},
-			Queue:    QueueConfig{Mode: "followup"},
-		},
-		Session: SessionConfig{
-			DailyReset: "04:00",
-			IdleExpiry: 4 * time.Hour,
+			"openai": {
+				Provider: "openai",
+				Model:    "gpt-4o",
+				Thinking: "medium",
+				Tools:    AgentToolsConfig{},
+				Compaction: CompactionConfig{
+					KeepRecentTokens: 20000,
+					ReserveTokens:    16384,
+					ChunkRatio:       0.4,
+				},
+			},
 		},
 	}
 }

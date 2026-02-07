@@ -28,23 +28,18 @@ var upgrader = websocket.Upgrader{
 
 // Server is the Aido gateway server.
 type Server struct {
-	Config     *config.Config
-	ConfigPath string
-	Router     *agent.Router
-	Conns      *ConnManager
-	httpSrv    *http.Server
-	startAt    time.Time
+	Router  *agent.Router
+	Conns   *ConnManager
+	httpSrv *http.Server
+	startAt time.Time
 }
 
-func NewServer(cfg *config.Config, router *agent.Router, configPath string) *Server {
-	s := &Server{
-		Config:     cfg,
-		ConfigPath: configPath,
-		Router:     router,
-		Conns:      NewConnManager(),
-		startAt:    time.Now(),
+func NewServer(router *agent.Router) *Server {
+	return &Server{
+		Router:  router,
+		Conns:   NewConnManager(),
+		startAt: time.Now(),
 	}
-	return s
 }
 
 // Start begins listening for connections.
@@ -63,19 +58,24 @@ func (s *Server) Start(ctx context.Context) error {
 	engine.StaticFS("/static", http.FS(staticFS))
 	engine.GET("/", s.ginWebIndex(webRoot))
 
-	addr := fmt.Sprintf(":%d", s.Config.Gateway.Port)
+	cfg := config.Get()
+	if cfg == nil {
+		return fmt.Errorf("config not loaded")
+	}
+	addr := fmt.Sprintf(":%d", cfg.Gateway.Port)
 	s.httpSrv = &http.Server{
 		Addr:    addr,
 		Handler: engine,
 	}
 
-	slog.Info("Aido gateway starting", "port", s.Config.Gateway.Port)
-	uiURL := fmt.Sprintf("http://localhost:%d/", s.Config.Gateway.Port)
-	if t := s.Config.Gateway.Auth.Token; t != "" {
+	slog.Info("Aido gateway starting", "port", cfg.Gateway.Port)
+	uiURL := fmt.Sprintf("http://localhost:%d/", cfg.Gateway.Port)
+	if t := cfg.Gateway.Auth.Token; t != "" {
 		uiURL += "#token=" + url.QueryEscape(t)
 	}
 	slog.Info("management UI", "url", uiURL)
 
+	go config.Watch(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -87,6 +87,18 @@ func (s *Server) Start(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (s *Server) authenticate(token string) bool {
+	cfg := config.Get()
+	if cfg == nil {
+		return false
+	}
+	expected := cfg.Gateway.Auth.Token
+	if expected == "" {
+		return true
+	}
+	return token == expected
 }
 
 func (s *Server) ginWebIndex(webRoot fs.FS) gin.HandlerFunc {
@@ -194,10 +206,3 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 	}
 }
 
-func (s *Server) authenticate(token string) bool {
-	expected := s.Config.Gateway.Auth.Token
-	if expected == "" {
-		return true // no auth configured
-	}
-	return token == expected
-}

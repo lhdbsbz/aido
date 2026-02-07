@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/lhdbsbz/aido/internal/agent"
+	"github.com/lhdbsbz/aido/internal/config"
 )
 
 const apiPrefix = "/api"
@@ -28,6 +29,7 @@ func (s *Server) registerAPIRoutes(engine *gin.Engine) {
 	api := engine.Group(apiPrefix, s.apiAuthMiddleware())
 	api.GET("/health", s.ginAPIHealth)
 	api.GET("/config", s.ginAPIConfig)
+	api.PUT("/config", s.ginAPIConfigPut)
 	api.GET("/sessions", s.ginAPISessions)
 	api.GET("/chat/history", s.ginAPIChatHistory)
 	api.POST("/chat/send", s.ginAPIChatSend)
@@ -42,7 +44,30 @@ func (s *Server) ginAPIHealth(c *gin.Context) {
 }
 
 func (s *Server) ginAPIConfig(c *gin.Context) {
-	c.JSON(http.StatusOK, s.configForUI())
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "read config: " + err.Error()})
+		return
+	}
+	c.Header("Cache-Control", "no-store, no-cache, must-revalidate")
+	c.JSON(http.StatusOK, configForUIFromCfg(cfg))
+}
+
+func (s *Server) ginAPIConfigPut(c *gin.Context) {
+	var cfg config.Config
+	if err := c.ShouldBindJSON(&cfg); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid config: " + err.Error()})
+		return
+	}
+	if cfg.Gateway.Port <= 0 || cfg.Gateway.Port > 65535 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "gateway.port must be 1-65535"})
+		return
+	}
+	if err := config.Write(config.Path(), &cfg); err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "write config: " + err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已保存"})
 }
 
 func (s *Server) ginAPISessions(c *gin.Context) {

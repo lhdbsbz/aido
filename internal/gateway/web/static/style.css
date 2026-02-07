@@ -132,7 +132,7 @@ body {
 .chat-input-row button:hover { background: #2563eb; }
 .chat-input-row button:disabled { background: #555; cursor: not-allowed; }
 
-.sessions-toolbar, .config-toolbar { margin-bottom: 12px; }
+.sessions-toolbar, .config-toolbar { margin-bottom: 12px; display: flex; gap: 8px; align-items: center; }
 .sessions-toolbar button, .config-toolbar button {
   padding: 8px 16px;
   border: none;
@@ -140,6 +140,306 @@ body {
   background: #333;
   color: #e0e0e0;
   cursor: pointer;
+}
+.config-save-btn { background: #3b82f6; color: white; }
+.config-save-btn:hover { background: #2563eb; }
+
+.config-message {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: none;
+}
+.config-message-success { background: #14532d; color: #86efac; border: 1px solid #166534; }
+.config-message-error { background: #450a0a; color: #fca5a5; border: 1px solid #991b1b; }
+
+.config-path-hint {
+  margin: 0 0 16px;
+  font-size: 0.85rem;
+  color: #888;
+}
+.config-path-hint span { font-family: monospace; color: #93c5fd; }
+
+.config-layout {
+  display: flex;
+  gap: 20px;
+  margin-top: 12px;
+  align-items: flex-start;
+}
+.config-nav {
+  flex-shrink: 0;
+  width: 160px;
+  position: sticky;
+  top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 0;
+  background: #252525;
+  border-radius: 8px;
+  border: 1px solid #333;
+}
+.config-nav-item {
+  display: block;
+  padding: 8px 14px;
+  color: #aaa;
+  text-decoration: none;
+  font-size: 0.9rem;
+  border-left: 3px solid transparent;
+  margin-left: 4px;
+}
+.config-nav-item:hover {
+  color: #e0e0e0;
+  background: #2a2a2a;
+}
+.config-nav-item.active {
+  color: #93c5fd;
+  border-left-color: #3b82f6;
+}
+.config-body {
+  flex: 1;
+  min-width: 0;
+}
+.config-body .config-section {
+  scroll-margin-top: 12px;
+}
+@media (max-width: 768px) {
+  .config-layout {
+    flex-direction: column;
+  }
+  .config-nav {
+    position: static;
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .config-nav-item {
+    margin-left: 0;
+    border-left: none;
+    border-bottom: 3px solid transparent;
+  }
+  .config-nav-item.active {
+    border-left: none;
+    border-bottom-color: #3b82f6;
+  }
+}
+
+.config-section {
+  margin-bottom: 20px;
+  padding: 14px 16px;
+  background: #252525;
+  border-radius: 8px;
+  border: 1px solid #333;
+}
+.config-section-title {
+  margin: 0 0 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #e0e0e0;
+}
+.config-section-hint {
+  margin: -6px 0 12px;
+  font-size: 0.8rem;
+  color: #888;
+  line-height: 1.4;
+}
+.config-hint-inline {
+  margin-left: 8px;
+  font-size: 0.8rem;
+  color: #888;
+}
+.config-advanced .config-section-title { cursor: pointer; list-style: none; }
+.config-advanced .config-section-title::-webkit-details-marker { display: none; }
+
+.config-form label {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+.config-form label input {
+  display: block;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+.config-form label input[type="number"] { max-width: 120px; }
+.config-form label select,
+.config-block select {
+  display: block;
+  width: 100%;
+  max-width: 220px;
+  margin-top: 4px;
+  padding: 8px 32px 8px 10px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #252525;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23888' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.config-form label select:hover,
+.config-block select:hover {
+  border-color: #555;
+}
+.config-form label select:focus,
+.config-block select:focus {
+  outline: none;
+}
+
+.input-select-dropdown {
+  position: fixed;
+  z-index: 10000;
+  max-height: 220px;
+  overflow-y: auto;
+  background: #252525;
+  border: 1px solid #444;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  padding: 4px 0;
+}
+.input-select-dropdown-item {
+  padding: 8px 12px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #e0e0e0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.input-select-dropdown-item:hover {
+  background: #333;
+  color: #fff;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+.config-block select {
+  max-width: 100%;
+}
+.config-checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.config-checkbox-label input { width: auto; max-width: none; margin-top: 0; }
+
+.config-add-btn {
+  margin-top: 10px;
+  padding: 8px 14px;
+  border: 1px dashed #555;
+  border-radius: 6px;
+  background: transparent;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+.config-add-btn:hover { border-color: #666; color: #ccc; }
+
+.config-block-row-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.config-block-remove {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: #333;
+  color: #aaa;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+.config-block-remove:hover { background: #444; color: #f87171; }
+
+.config-mcp-env-block { margin-top: 10px; }
+.config-mcp-env-block .config-block-label { display: block; margin-bottom: 6px; font-size: 0.9rem; color: #aaa; }
+.config-mcp-env-list { display: flex; flex-direction: column; gap: 6px; }
+.config-block-row-inline { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.config-block-row-inline label { margin: 0; }
+.config-block-row-inline .config-mcp-env-key { width: 160px; }
+.config-block-row-inline .config-mcp-env-val { flex: 1; min-width: 120px; }
+.config-add-btn-inline { margin-top: 6px; padding: 4px 10px; font-size: 0.85rem; border: 1px dashed #555; border-radius: 4px; background: transparent; color: #888; cursor: pointer; }
+.config-add-btn-inline:hover { border-color: #666; color: #ccc; }
+.config-block-remove-inline { padding: 4px 8px; font-size: 0.8rem; border: none; border-radius: 4px; background: #333; color: #888; cursor: pointer; }
+.config-block-remove-inline:hover { background: #444; color: #f87171; }
+
+.config-block textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #252525;
+  color: #e0e0e0;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.config-block {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
+  border: 1px solid #333;
+}
+.config-block:last-child { margin-bottom: 0; }
+.config-block-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #93c5fd;
+  margin-bottom: 10px;
+}
+.config-block label {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+.config-block label:last-child { margin-bottom: 0; }
+.config-block input {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 10px;
+  border: 1px solid #444;
+  border-radius: 4px;
+  background: #252525;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+}
+.config-block select option {
+  background: #252525;
+  color: #e0e0e0;
+}
+
+.config-json {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #444;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  font-family: monospace;
+  font-size: 0.85rem;
+  resize: vertical;
+  box-sizing: border-box;
 }
 .sessions-list {
   background: #252525;

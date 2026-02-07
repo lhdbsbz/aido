@@ -27,7 +27,7 @@ func (c *AnthropicClient) Chat(ctx context.Context, params ChatParams) (<-chan S
 	if params.BaseURL != "" {
 		endpoint = params.BaseURL
 	}
-	endpoint = strings.TrimRight(params.BaseURL, "/") + "/v1/messages"
+	endpoint = strings.TrimRight(endpoint, "/") + "/v1/messages"
 	body := c.buildRequest(params)
 	bodyBytes, err := json.Marshal(body)
 	if err != nil {

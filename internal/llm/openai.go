@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 )
 
 // OpenAIClient implements Client for all OpenAI-compatible providers
@@ -22,8 +23,9 @@ func NewOpenAIClient() *OpenAIClient {
 func (c *OpenAIClient) Chat(ctx context.Context, params ChatParams) (<-chan StreamEvent, error) {
 	baseURL := params.BaseURL
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		baseURL = "https://api.openai.com"
 	}
+	baseURL = strings.TrimRight(baseURL, "/") + "/v1"
 
 	body := c.buildRequest(params)
 	bodyBytes, err := json.Marshal(body)

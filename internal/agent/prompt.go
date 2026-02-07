@@ -22,7 +22,6 @@ type PromptBuilder struct {
 	ToolDefs    []llm.ToolDef
 	Skills      []skills.SkillEntry
 	Workspace   string
-	ConfigPath  string
 }
 
 // Build constructs the full system prompt.
@@ -114,14 +113,18 @@ func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
 func (b *PromptBuilder) writeRuntime(sb *strings.Builder) {
 	sb.WriteString("## Runtime Information\n\n")
 	fmt.Fprintf(sb, "- Agent: %s\n", b.AgentID)
-	fmt.Fprintf(sb, "- Model: %s\n", b.AgentConfig.Model)
+	modelDisplay := b.AgentConfig.Model
+	if b.AgentConfig.Provider != "" {
+		modelDisplay = b.AgentConfig.Provider + "/" + b.AgentConfig.Model
+	}
+	fmt.Fprintf(sb, "- Model: %s\n", modelDisplay)
 	fmt.Fprintf(sb, "- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(sb, "- Time: %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
 	if b.Workspace != "" {
 		fmt.Fprintf(sb, "- Workspace: %s\n", b.Workspace)
 	}
-	if b.ConfigPath != "" {
-		fmt.Fprintf(sb, "- Config file: %s\n", b.ConfigPath)
+	if path := config.Path(); path != "" {
+		fmt.Fprintf(sb, "- Config file: %s\n", path)
 		sb.WriteString("  You can read or edit this file to change agent behavior (e.g. model, tools, skills). Changes take effect after Aido restarts.\n")
 	}
 	sb.WriteString("\n")

@@ -15,24 +15,20 @@ import (
 
 // Router manages multiple agents and routes messages to the correct one.
 type Router struct {
-	mu         sync.RWMutex
-	loop       *Loop
-	cfg        *config.Config
-	configPath string
-	store      *session.Store
-	locks      map[string]*sync.Mutex // sessionKey → mutex (prevent concurrent runs)
-	locksMu    sync.Mutex
-	skills     map[string][]skills.SkillEntry // agentID → skills
+	mu      sync.RWMutex
+	loop    *Loop
+	store   *session.Store
+	locks   map[string]*sync.Mutex // sessionKey → mutex (prevent concurrent runs)
+	locksMu sync.Mutex
+	skills  map[string][]skills.SkillEntry // agentID → skills
 }
 
-func NewRouter(loop *Loop, cfg *config.Config, store *session.Store, configPath string) *Router {
+func NewRouter(loop *Loop, store *session.Store) *Router {
 	return &Router{
-		loop:       loop,
-		cfg:        cfg,
-		configPath: configPath,
-		store:      store,
-		locks:      make(map[string]*sync.Mutex),
-		skills:     make(map[string][]skills.SkillEntry),
+		loop:   loop,
+		store:  store,
+		locks:  make(map[string]*sync.Mutex),
+		skills: make(map[string][]skills.SkillEntry),
 	}
 }
 
@@ -62,13 +58,20 @@ type ImageAttachment struct {
 
 // HandleMessage routes and processes an inbound message. Returns final text, tool steps (if any), and error.
 func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSink EventSink) (string, []ToolStep, error) {
+	cfg := config.Get()
+	if cfg == nil {
+		return "", nil, fmt.Errorf("config not loaded")
+	}
 	agentID := msg.AgentID
+	if cfg.Gateway.CurrentAgent != "" {
+		agentID = cfg.Gateway.CurrentAgent
+	}
 	if agentID == "" {
 		agentID = "default"
 	}
 
 	r.mu.RLock()
-	agentCfg, ok := r.cfg.Agents[agentID]
+	agentCfg, ok := cfg.Agents[agentID]
 	r.mu.RUnlock()
 
 	if !ok {
@@ -122,7 +125,6 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		ToolDefs:    toolDefs,
 		Skills:      loadedSkills,
 		Workspace:   workspace,
-		ConfigPath:  r.configPath,
 	}
 	systemPrompt := promptBuilder.Build()
 
