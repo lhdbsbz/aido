@@ -67,6 +67,10 @@ func (s *Server) handleChatSend(ctx context.Context, conn *Conn, params json.Raw
 		chatID = conn.ID
 	}
 	conn.SessionKey = chatID
+	s.Conns.BroadcastToSessionKey(chatID, "user_message", map[string]any{
+		"sessionKey": chatID,
+		"text":       p.Text,
+	})
 	eventSink := func(evt agent.Event) {
 		s.Conns.BroadcastToSessionKey(chatID, "agent", evt)
 	}

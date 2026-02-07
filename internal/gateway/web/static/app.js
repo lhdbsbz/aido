@@ -99,6 +99,16 @@
       } else {
         handlePassiveAgentEvent(payload);
       }
+      return;
+    }
+    if (msg.type === 'event' && msg.event === 'user_message' && msg.payload) {
+      var payload;
+      try {
+        payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+      } catch (e) { return; }
+      if (payload.text != null && payload.sessionKey === currentSessionKey) {
+        appendMessage('user', payload.text);
+      }
     }
   }
 
@@ -703,12 +713,11 @@
   sendBtn.addEventListener('click', function () {
     var text = chatInput.value.trim();
     if (!text || !token) return;
+    if (!ws || ws.readyState !== 1) return;
     stopHistoryPolling();
-    appendMessage('user', text);
     chatInput.value = '';
-    if (ws && ws.readyState === 1) {
-      var streamDiv = null;
-      agentEventCallback = function (ev) {
+    var streamDiv = null;
+    agentEventCallback = function (ev) {
         if (ev.type === 'stream_start' && !streamDiv) {
           streamDiv = document.createElement('div');
           streamDiv.className = 'msg assistant streaming';
@@ -759,11 +768,6 @@
         if (streamDiv) streamDiv.remove();
         appendMessage('assistant', '发送失败: ' + (err && err.message ? err.message : '未知错误'));
       });
-    } else {
-      apiCall('/chat/send', { method: 'POST', body: { text: text, sessionKey: currentSessionKey } }).then(function (res) {
-        if (res) appendAssistantMessage(res.text || '', res.toolSteps);
-      });
-    }
   });
 
   var EXEC = {

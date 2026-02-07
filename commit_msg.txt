@@ -1,5 +1,1 @@
-feat(gateway): refactor message distribution mechanism
-
-- enhance connection manager for better message handling
-- update protocol and server for improved message routing
-- optimize gateway web UI
+feat(gateway): optimize message handling
