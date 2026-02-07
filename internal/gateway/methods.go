@@ -101,28 +101,17 @@ func (s *Server) runChatSend(ctx context.Context, p *ChatSendParams, chatID stri
 	return out, nil
 }
 
-// handleChatHistory returns the conversation history for a session.
-func (s *Server) handleChatHistory(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
-	var p struct {
-		SessionKey string `json:"sessionKey"`
-	}
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, fmt.Errorf("invalid params: %w", err)
-	}
-	storageKey := ToStorageKey(p.SessionKey)
+// getChatHistory returns the conversation history for a session key (used by HTTP API).
+func (s *Server) getChatHistory(ctx context.Context, sessionKey string) (any, error) {
+	storageKey := ToStorageKey(sessionKey)
 	entry := s.Router.Store().Get(storageKey)
 	if entry == nil {
 		return map[string]any{"messages": []any{}}, nil
 	}
-
-	transcriptPath := s.Router.Store().TranscriptPath(storageKey)
-	_ = transcriptPath
-
 	messages, err := loadTranscriptMessages(s.Router.Store().TranscriptPath(storageKey))
 	if err != nil {
 		return nil, err
 	}
-
 	simplified := make([]map[string]any, 0, len(messages))
 	for _, msg := range messages {
 		m := map[string]any{
@@ -134,8 +123,18 @@ func (s *Server) handleChatHistory(ctx context.Context, conn *Conn, params json.
 		}
 		simplified = append(simplified, m)
 	}
-
 	return map[string]any{"messages": simplified}, nil
+}
+
+// handleChatHistory returns the conversation history for a session (WebSocket).
+func (s *Server) handleChatHistory(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
+	var p struct {
+		SessionKey string `json:"sessionKey"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return nil, fmt.Errorf("invalid params: %w", err)
+	}
+	return s.getChatHistory(ctx, p.SessionKey)
 }
 
 func loadTranscriptMessages(path string) ([]llmpkg.Message, error) {

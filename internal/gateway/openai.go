@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -16,38 +15,26 @@ import (
 
 // RegisterOpenAICompat registers OpenAI-compatible /v1/chat/completions on the Gin engine.
 func (s *Server) RegisterOpenAICompat(engine *gin.Engine) {
-	engine.POST("/v1/chat/completions", func(c *gin.Context) {
-		s.handleOpenAIChatCompletions(c.Writer, c.Request)
-	})
+	engine.POST("/v1/chat/completions", s.ginOpenAIChatCompletions)
 }
 
-func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	// Auth check
-	authHeader := r.Header.Get("Authorization")
-	token := strings.TrimPrefix(authHeader, "Bearer ")
+func (s *Server) ginOpenAIChatCompletions(c *gin.Context) {
+	token := strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer ")
 	if !s.authenticate(token) {
-		http.Error(w, `{"error":{"message":"invalid token","type":"auth_error"}}`, http.StatusUnauthorized)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, `{"error":{"message":"read body failed"}}`, http.StatusBadRequest)
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{
+			"error": gin.H{"message": "invalid token", "type": "auth_error"},
+		})
 		return
 	}
 
 	var req openAIRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		http.Error(w, `{"error":{"message":"invalid json"}}`, http.StatusBadRequest)
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"message": "invalid json", "type": "invalid_request"},
+		})
 		return
 	}
 
-	// Extract user message (last user message)
 	var userText string
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == "user" {
@@ -56,31 +43,30 @@ func (s *Server) handleOpenAIChatCompletions(w http.ResponseWriter, r *http.Requ
 		}
 	}
 	if userText == "" {
-		http.Error(w, `{"error":{"message":"no user message found"}}`, http.StatusBadRequest)
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"error": gin.H{"message": "no user message found", "type": "invalid_request"},
+		})
 		return
 	}
 
-	// Resolve agent
 	agentID := req.Model
 	if agentID == "aido" || agentID == "" {
 		agentID = "default"
 	}
-
-	// Session key from "user" field or generate one
 	sessionKey := req.User
 	if sessionKey == "" {
 		sessionKey = fmt.Sprintf("openai:%s:%d", agentID, time.Now().UnixMilli())
 	}
 
 	if req.Stream {
-		s.handleOpenAIStream(w, r, agentID, sessionKey, userText)
+		s.handleOpenAIStream(c, agentID, sessionKey, userText)
 	} else {
-		s.handleOpenAISync(w, r, agentID, sessionKey, userText)
+		s.handleOpenAISync(c, agentID, sessionKey, userText)
 	}
 }
 
-func (s *Server) handleOpenAISync(w http.ResponseWriter, r *http.Request, agentID, sessionKey, userText string) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+func (s *Server) handleOpenAISync(c *gin.Context, agentID, sessionKey, userText string) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
 
 	result, _, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
@@ -89,45 +75,45 @@ func (s *Server) handleOpenAISync(w http.ResponseWriter, r *http.Request, agentI
 		ChatID:  sessionKey,
 		Text:    userText,
 	}, nil)
-
 	if err != nil {
 		slog.Error("openai compat error", "error", err)
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
-			"error": map[string]any{"message": err.Error(), "type": "server_error"},
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"message": err.Error(), "type": "server_error"},
 		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{
+	c.JSON(http.StatusOK, gin.H{
 		"id":      fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli()),
 		"object":  "chat.completion",
 		"created": time.Now().Unix(),
 		"model":   agentID,
-		"choices": []map[string]any{
+		"choices": []gin.H{
 			{
 				"index":         0,
-				"message":       map[string]any{"role": "assistant", "content": result},
+				"message":       gin.H{"role": "assistant", "content": result},
 				"finish_reason": "stop",
 			},
 		},
 	})
 }
 
-func (s *Server) handleOpenAIStream(w http.ResponseWriter, r *http.Request, agentID, sessionKey, userText string) {
-	flusher, ok := w.(http.Flusher)
+func (s *Server) handleOpenAIStream(c *gin.Context, agentID, sessionKey, userText string) {
+	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
-		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{
+			"error": gin.H{"message": "streaming not supported", "type": "server_error"},
+		})
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Status(http.StatusOK)
+	flusher.Flush()
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
 	defer cancel()
 
 	completionID := fmt.Sprintf("chatcmpl-%d", time.Now().UnixMilli())
@@ -147,10 +133,9 @@ func (s *Server) handleOpenAIStream(w http.ResponseWriter, r *http.Request, agen
 				},
 			}
 			data, _ := json.Marshal(chunk)
-			fmt.Fprintf(w, "data: %s\n\n", data)
+			fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 			flusher.Flush()
 		}
-
 		if evt.Type == agent.EventTypeDone {
 			doneChunk := map[string]any{
 				"id":      completionID,
@@ -166,8 +151,8 @@ func (s *Server) handleOpenAIStream(w http.ResponseWriter, r *http.Request, agen
 				},
 			}
 			data, _ := json.Marshal(doneChunk)
-			fmt.Fprintf(w, "data: %s\n\n", data)
-			fmt.Fprintf(w, "data: [DONE]\n\n")
+			fmt.Fprintf(c.Writer, "data: %s\n\n", data)
+			fmt.Fprintf(c.Writer, "data: [DONE]\n\n")
 			flusher.Flush()
 		}
 	}
@@ -178,14 +163,13 @@ func (s *Server) handleOpenAIStream(w http.ResponseWriter, r *http.Request, agen
 		ChatID:  sessionKey,
 		Text:    userText,
 	}, eventSink)
-
 	if err != nil {
 		slog.Error("openai stream error", "error", err)
 		errChunk := map[string]any{
 			"error": map[string]any{"message": err.Error(), "type": "server_error"},
 		}
 		data, _ := json.Marshal(errChunk)
-		fmt.Fprintf(w, "data: %s\n\n", data)
+		fmt.Fprintf(c.Writer, "data: %s\n\n", data)
 		flusher.Flush()
 	}
 }

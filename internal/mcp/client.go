@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -95,6 +96,36 @@ func (c *Client) RegisterTools(registry *toolpkg.Registry) {
 	}
 }
 
+// ServerNames returns the names of all currently connected MCP servers.
+func (c *Client) ServerNames() []string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	names := make([]string, 0, len(c.transports))
+	for name := range c.transports {
+		names = append(names, name)
+	}
+	return names
+}
+
+// RemoveServer disconnects an MCP server and removes its tools from the client.
+// Caller should also call registry.UnregisterByPrefix(name) to remove tools from the registry.
+func (c *Client) RemoveServer(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	t, ok := c.transports[name]
+	if !ok {
+		return
+	}
+	t.Close()
+	delete(c.transports, name)
+	prefix := name + ":"
+	for toolName := range c.tools {
+		if strings.HasPrefix(toolName, prefix) {
+			delete(c.tools, toolName)
+		}
+	}
+}
+
 // Close shuts down all MCP server connections.
 func (c *Client) Close() {
 	c.mu.Lock()
@@ -125,7 +156,7 @@ type MCPTool struct {
 	transport   Transport
 }
 
-func (t *MCPTool) Name() string               { return t.fullName }
+func (t *MCPTool) Name() string                { return t.fullName }
 func (t *MCPTool) Description() string         { return t.description }
 func (t *MCPTool) Parameters() json.RawMessage { return t.parameters }
 

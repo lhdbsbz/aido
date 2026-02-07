@@ -2,7 +2,7 @@
 # Place this file at ~/.aido/config.yaml
 
 gateway:
-  port: 18789
+  port: 19800
   auth:
     token: "${AIDO_TOKEN}"   # set via environment variable
 

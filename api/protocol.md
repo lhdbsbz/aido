@@ -2,7 +2,7 @@
 
 ## Connection
 
-Connect to `ws://<host>:18789/ws`
+Connect to `ws://<host>:19800/ws`
 
 ### Handshake
 

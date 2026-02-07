@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/lhdbsbz/aido/internal/llm"
@@ -32,6 +33,25 @@ func (r *Registry) Register(t Tool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.tools[t.Name()] = t
+}
+
+// Unregister removes a tool by name.
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
+// UnregisterByPrefix removes all tools whose name has the given prefix (e.g. "serverName:" for MCP).
+func (r *Registry) UnregisterByPrefix(prefix string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	prefixWithColon := prefix + ":"
+	for name := range r.tools {
+		if strings.HasPrefix(name, prefixWithColon) {
+			delete(r.tools, name)
+		}
+	}
 }
 
 // Get returns a tool by name.

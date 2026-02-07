@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -66,12 +67,23 @@ func serve() error {
 		os.MkdirAll(dir, 0755)
 	}
 
-	// Load config
+	// Load config; if missing, create from embedded example (token replaced) then load
 	cfgPath := config.ResolveConfigPath("")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		slog.Warn("config not found, using defaults", "path", cfgPath, "error", err)
-		cfg = config.DefaultConfig()
+		if errors.Is(err, os.ErrNotExist) {
+			if writeErr := config.CreateFromExample(cfgPath); writeErr != nil {
+				return fmt.Errorf("create config: %w", writeErr)
+			}
+			slog.Info("config created", "path", cfgPath)
+			cfg, err = config.Load(cfgPath)
+			if err != nil {
+				return fmt.Errorf("load created config: %w", err)
+			}
+		} else {
+			slog.Warn("config load failed, using defaults", "path", cfgPath, "error", err)
+			cfg = config.DefaultConfig()
+		}
 	}
 
 	// Initialize session store
@@ -93,31 +105,8 @@ func serve() error {
 	tool.RegisterExecTools(registry, defaultWorkspace)
 	tool.RegisterWebTools(registry)
 
-	// 注册MCP
-	if len(cfg.Tools.MCP) > 0 {
-		mcpClient := mcp.NewClient()
-		for _, srv := range cfg.Tools.MCP {
-			name := srv.Name
-			if name == "" {
-				name = "mcp"
-			}
-			if srv.Transport == "http" || srv.URL != "" {
-				slog.Warn("MCP HTTP transport not implemented, skipping", "name", name)
-				continue
-			}
-			envSlice := make([]string, 0, len(srv.Env))
-			for k, v := range srv.Env {
-				envSlice = append(envSlice, k+"="+v)
-			}
-			transport := mcp.NewStdioTransport(srv.Command, srv.Args, envSlice, home)
-			if err := mcpClient.AddServer(context.Background(), name, transport); err != nil {
-				slog.Warn("failed to add MCP server", "name", name, "error", err)
-				continue
-			}
-			slog.Info("MCP server added", "name", name)
-		}
-		mcpClient.RegisterTools(registry)
-	}
+	mcpClient := mcp.NewClient()
+	reloadMCP(context.Background(), cfg, mcpClient, registry, home)
 
 	// Build default policy
 	var globalPolicy tool.PolicyLayer
@@ -141,23 +130,7 @@ func serve() error {
 
 	// Initialize router
 	router := agent.NewRouter(loop, cfg, store, cfgPath)
-
-	// Load skills
-	for agentID, agentCfg := range cfg.Agents {
-		skillDirs := agentCfg.Skills.Dirs
-		if len(skillDirs) == 0 {
-			ws := agentCfg.Workspace
-			if ws == "" {
-				ws = defaultWorkspace
-			}
-			skillDirs = []string{filepath.Join(ws, "skills")}
-		}
-		loaded := skills.LoadFromDirs(skillDirs)
-		router.SetSkills(agentID, loaded)
-		if len(loaded) > 0 {
-			slog.Info("skills loaded", "agent", agentID, "count", len(loaded))
-		}
-	}
+	reloadSkills(cfg, router, defaultWorkspace)
 
 	// Start gateway with graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
@@ -173,4 +146,50 @@ func serve() error {
 
 	srv := gateway.NewServer(cfg, router, cfgPath)
 	return srv.Start(ctx)
+}
+
+func reloadMCP(ctx context.Context, cfg *config.Config, mcpClient *mcp.Client, registry *tool.Registry, home string) {
+	for _, name := range mcpClient.ServerNames() {
+		mcpClient.RemoveServer(name)
+		registry.UnregisterByPrefix(name)
+	}
+	for _, srv := range cfg.Tools.MCP {
+		name := srv.Name
+		if name == "" {
+			name = "mcp"
+		}
+		if srv.Transport == "http" || srv.URL != "" {
+			slog.Warn("MCP HTTP transport not implemented, skipping", "name", name)
+			continue
+		}
+		envSlice := make([]string, 0, len(srv.Env))
+		for k, v := range srv.Env {
+			envSlice = append(envSlice, k+"="+v)
+		}
+		transport := mcp.NewStdioTransport(srv.Command, srv.Args, envSlice, home)
+		if err := mcpClient.AddServer(ctx, name, transport); err != nil {
+			slog.Warn("failed to add MCP server", "name", name, "error", err)
+			continue
+		}
+		slog.Info("MCP server added", "name", name)
+	}
+	mcpClient.RegisterTools(registry)
+}
+
+func reloadSkills(cfg *config.Config, router *agent.Router, defaultWorkspace string) {
+	for agentID, agentCfg := range cfg.Agents {
+		skillDirs := agentCfg.Skills.Dirs
+		if len(skillDirs) == 0 {
+			ws := agentCfg.Workspace
+			if ws == "" {
+				ws = defaultWorkspace
+			}
+			skillDirs = []string{filepath.Join(ws, "skills")}
+		}
+		loaded := skills.LoadFromDirs(skillDirs)
+		router.SetSkills(agentID, loaded)
+		if len(loaded) > 0 {
+			slog.Info("skills loaded", "agent", agentID, "count", len(loaded))
+		}
+	}
 }

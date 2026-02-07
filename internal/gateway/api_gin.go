@@ -1,8 +1,6 @@
 package gateway
 
 import (
-	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -48,62 +46,47 @@ func (s *Server) ginAPIConfig(c *gin.Context) {
 }
 
 func (s *Server) ginAPISessions(c *gin.Context) {
-	result, _ := s.handleSessionsList(c.Request.Context(), nil, nil)
+	result, err := s.handleSessionsList(c.Request.Context(), nil, nil)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) ginAPIChatHistory(c *gin.Context) {
 	sessionKey := c.Query("sessionKey")
 	if sessionKey == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "sessionKey required"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "sessionKey required"})
 		return
 	}
-	params, _ := json.Marshal(struct{ SessionKey string }{SessionKey: sessionKey})
-	result, err := s.handleChatHistory(c.Request.Context(), nil, params)
+	result, err := s.getChatHistory(c.Request.Context(), sessionKey)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, result)
 }
 
 func (s *Server) ginAPIChatSend(c *gin.Context) {
-	var body struct {
-		Text       string `json:"text"`
-		SessionKey string `json:"sessionKey"`
-	}
+	var body ChatSendParams
 	if err := c.ShouldBindJSON(&body); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
 	if body.Text == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "text required"})
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "text required"})
 		return
 	}
-	if body.SessionKey == "" {
-		body.SessionKey = "webchat:default:manager"
-	}
-	params, _ := json.Marshal(struct {
-		Text       string `json:"text"`
-		SessionKey string `json:"sessionKey"`
-	}{body.Text, body.SessionKey})
-	result, err := s.handleChatSendHTTP(c.Request.Context(), params)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func (s *Server) handleChatSendHTTP(ctx context.Context, params json.RawMessage) (any, error) {
-	var p ChatSendParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, err
-	}
-	chatID := p.SessionKey
+	chatID := body.SessionKey
 	if chatID == "" {
 		chatID = "webchat:default:manager"
 	}
 	var eventSink agent.EventSink = func(agent.Event) {}
-	return s.runChatSend(ctx, &p, chatID, eventSink)
+	result, err := s.runChatSend(c.Request.Context(), &body, chatID, eventSink)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, result)
 }

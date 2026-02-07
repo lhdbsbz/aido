@@ -1,6 +1,9 @@
 package config
 
 import (
+	"crypto/rand"
+	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +12,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed config.example.yaml
+var exampleConfigBytes []byte
 
 var envVarPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 
@@ -74,6 +80,45 @@ func ResolveConfigPath(flagPath string) string {
 		return flagPath
 	}
 	return filepath.Join(ResolveHome(), "config.yaml")
+}
+
+// GenerateToken returns a random hex token (32 bytes = 64 chars) for gateway auth.
+func GenerateToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "fallback-token-please-set-gateway-auth-token-in-config"
+	}
+	return hex.EncodeToString(b)
+}
+
+// CreateFromExample writes the embedded config.example.yaml to targetPath with token placeholder replaced by a generated token.
+func CreateFromExample(targetPath string) error {
+	dir := filepath.Dir(targetPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	token := GenerateToken()
+	content := strings.ReplaceAll(string(exampleConfigBytes), "${AIDO_TOKEN}", token)
+	if err := os.WriteFile(targetPath, []byte(content), 0600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
+}
+
+// Write marshals cfg to YAML and writes it to path. Creates parent directory if needed.
+func Write(path string, cfg *Config) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create config dir: %w", err)
+	}
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write config: %w", err)
+	}
+	return nil
 }
 
 // ResolveProvider parses "provider/model" format and returns provider config + model name.

@@ -5,15 +5,20 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/lhdbsbz/aido/internal/agent"
 )
+
+// SkillEntry represents a loaded skill (name, description, path to SKILL.md).
+type SkillEntry struct {
+	Name        string
+	Description string
+	Path        string
+}
 
 // LoadFromDirs scans directories for skill folders (each containing SKILL.md).
 // Returns skill entries with name, description, and path.
 // Compatible with OpenClaw's skill format.
-func LoadFromDirs(dirs []string) []agent.SkillEntry {
-	var skills []agent.SkillEntry
+func LoadFromDirs(dirs []string) []SkillEntry {
+	var list []SkillEntry
 	seen := make(map[string]bool)
 
 	for _, dir := range dirs {
@@ -36,7 +41,7 @@ func LoadFromDirs(dirs []string) []agent.SkillEntry {
 			seen[name] = true
 
 			desc := parseSkillDescription(skillPath)
-			skills = append(skills, agent.SkillEntry{
+			list = append(list, SkillEntry{
 				Name:        name,
 				Description: desc,
 				Path:        skillPath,
@@ -44,7 +49,7 @@ func LoadFromDirs(dirs []string) []agent.SkillEntry {
 		}
 	}
 
-	return skills
+	return list
 }
 
 // parseSkillDescription reads the YAML frontmatter of a SKILL.md to extract the description.

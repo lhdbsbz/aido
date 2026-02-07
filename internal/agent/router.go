@@ -4,11 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/lhdbsbz/aido/internal/config"
 	"github.com/lhdbsbz/aido/internal/session"
+	"github.com/lhdbsbz/aido/internal/skills"
 )
 
 // Router manages multiple agents and routes messages to the correct one.
@@ -20,7 +22,7 @@ type Router struct {
 	store      *session.Store
 	locks      map[string]*sync.Mutex // sessionKey → mutex (prevent concurrent runs)
 	locksMu    sync.Mutex
-	skills     map[string][]SkillEntry // agentID → skills
+	skills     map[string][]skills.SkillEntry // agentID → skills
 }
 
 func NewRouter(loop *Loop, cfg *config.Config, store *session.Store, configPath string) *Router {
@@ -30,15 +32,15 @@ func NewRouter(loop *Loop, cfg *config.Config, store *session.Store, configPath 
 		configPath: configPath,
 		store:      store,
 		locks:      make(map[string]*sync.Mutex),
-		skills:     make(map[string][]SkillEntry),
+		skills:     make(map[string][]skills.SkillEntry),
 	}
 }
 
 // SetSkills sets loaded skills for an agent.
-func (r *Router) SetSkills(agentID string, skills []SkillEntry) {
+func (r *Router) SetSkills(agentID string, list []skills.SkillEntry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.skills[agentID] = skills
+	r.skills[agentID] = list
 }
 
 // InboundMessage represents a message from a bridge or client.
@@ -67,12 +69,21 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 
 	r.mu.RLock()
 	agentCfg, ok := r.cfg.Agents[agentID]
-	skills := r.skills[agentID]
 	r.mu.RUnlock()
 
 	if !ok {
 		return "", nil, fmt.Errorf("agent %q not found", agentID)
 	}
+
+	skillDirs := agentCfg.Skills.Dirs
+	if len(skillDirs) == 0 {
+		ws := agentCfg.Workspace
+		if ws == "" {
+			ws = filepath.Join(config.ResolveHome(), "workspace")
+		}
+		skillDirs = []string{filepath.Join(ws, "skills")}
+	}
+	loadedSkills := skills.LoadFromDirs(skillDirs)
 
 	// Derive session key
 	sessionKey := DeriveSessionKey(agentID, msg.Channel, msg.ChatID)
@@ -109,7 +120,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		AgentConfig: &agentCfg,
 		AgentID:     agentID,
 		ToolDefs:    toolDefs,
-		Skills:      skills,
+		Skills:      loadedSkills,
 		Workspace:   workspace,
 		ConfigPath:  r.configPath,
 	}

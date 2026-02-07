@@ -121,7 +121,7 @@ type MCPServerConfig struct {
 func DefaultConfig() *Config {
 	return &Config{
 		Gateway: GatewayConfig{
-			Port: 18789,
+			Port: 19800,
 		},
 		Agents: map[string]AgentConfig{
 			"default": {

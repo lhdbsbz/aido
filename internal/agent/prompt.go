@@ -10,6 +10,7 @@ import (
 
 	"github.com/lhdbsbz/aido/internal/config"
 	"github.com/lhdbsbz/aido/internal/llm"
+	"github.com/lhdbsbz/aido/internal/skills"
 )
 
 const maxBootstrapChars = 20000
@@ -19,16 +20,9 @@ type PromptBuilder struct {
 	AgentConfig *config.AgentConfig
 	AgentID     string
 	ToolDefs    []llm.ToolDef
-	Skills      []SkillEntry
+	Skills      []skills.SkillEntry
 	Workspace   string
 	ConfigPath  string
-}
-
-// SkillEntry represents a loaded skill for prompt injection.
-type SkillEntry struct {
-	Name        string
-	Description string
-	Path        string
 }
 
 // Build constructs the full system prompt.
