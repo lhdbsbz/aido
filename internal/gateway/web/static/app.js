@@ -5,8 +5,12 @@
   var pending = {};
   var nextReqId = 1;
   var agentEventCallback = null;
+  var passiveStreamDiv = null;
   var historyPollTimer = null;
   var historyPollPlaceholder = null;
+  var closedByUser = false;
+  var reconnectAttempts = 0;
+  var maxReconnectAttempts = 5;
 
   var statusEl = document.getElementById('status');
   var tokenEl = document.getElementById('token');
@@ -14,6 +18,7 @@
   var chatHistory = document.getElementById('chatHistory');
   var chatInput = document.getElementById('chatInput');
   var sendBtn = document.getElementById('sendBtn');
+  var executionLogSwitch = document.getElementById('executionLogSwitch');
   var refreshSessions = document.getElementById('refreshSessions');
   var sessionsList = document.getElementById('sessionsList');
   var refreshConfig = document.getElementById('refreshConfig');
@@ -84,17 +89,70 @@
       }
       return;
     }
-    if (msg.type === 'event' && msg.event === 'agent' && agentEventCallback && msg.payload) {
+    if (msg.type === 'event' && msg.event === 'agent' && msg.payload) {
       var payload;
       try {
         payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
       } catch (e) { return; }
-      agentEventCallback(payload);
+      if (agentEventCallback) {
+        agentEventCallback(payload);
+      } else {
+        handlePassiveAgentEvent(payload);
+      }
+    }
+  }
+
+  function eventSessionKeyMatchesCurrent(payloadSessionKey) {
+    if (!currentSessionKey || !payloadSessionKey || currentSessionKey.indexOf('webchat:default:') !== 0) return false;
+    var deviceId = currentSessionKey.slice('webchat:default:'.length);
+    return payloadSessionKey === 'default:webchat:' + deviceId;
+  }
+
+  function handlePassiveAgentEvent(ev) {
+    if (!ev || !eventSessionKeyMatchesCurrent(ev.sessionKey)) return;
+    if (ev.type === 'stream_start' && !passiveStreamDiv) {
+      passiveStreamDiv = document.createElement('div');
+      passiveStreamDiv.className = 'msg assistant streaming';
+      passiveStreamDiv.innerHTML = '<div class="msg-head">' + AVATAR_ASSISTANT + '<span class="role">Aido</span></div><details class="execution-log"><summary>执行过程</summary><div class="execution-log-inner"></div></details><div class="msg-body"></div>';
+      chatHistory.appendChild(passiveStreamDiv);
+      applyExecutionLogState();
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    }
+    if (!passiveStreamDiv) return;
+    var logEl = passiveStreamDiv.querySelector('.execution-log-inner');
+    var body = passiveStreamDiv.querySelector('.msg-body');
+    if (ev.type === 'stream_start' && logEl) {
+      appendExecutionLog(logEl, 'status', escapeHtml(EXEC.start));
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    } else if (ev.type === 'tool_start' && logEl) {
+      var params = (ev.toolParams || '').trim();
+      var short = params.length > 80 ? params.slice(0, 80) + '…' : params;
+      appendExecutionLog(logEl, 'tool-start', EXEC.call + escapeHtml(ev.toolName || 'tool') + (short ? ': ' + escapeHtml(short) : ''));
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    } else if (ev.type === 'tool_end' && logEl) {
+      var res = (ev.toolResult || '').trim();
+      var resShort = res.length > 120 ? res.slice(0, 120) + '…' : res;
+      appendExecutionLog(logEl, 'tool-end', EXEC.return + (resShort ? escapeHtml(resShort) : '—'));
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    } else if (ev.type === 'text_delta' && ev.text && body) {
+      body.innerHTML += escapeHtml(ev.text);
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+    } else if (ev.type === 'done' && logEl) {
+      appendExecutionLog(logEl, 'status', escapeHtml(EXEC.done));
+      passiveStreamDiv.classList.remove('streaming');
+      chatHistory.scrollTop = chatHistory.scrollHeight;
+      passiveStreamDiv = null;
+      loadChatHistory();
+    } else if (ev.type === 'error' && ev.error && logEl) {
+      appendExecutionLog(logEl, 'error', EXEC.error + escapeHtml(ev.error));
+      chatHistory.scrollTop = chatHistory.scrollHeight;
     }
   }
 
   function closeWs() {
+    closedByUser = true;
     agentEventCallback = null;
+    passiveStreamDiv = null;
     if (ws) {
       ws.onclose = null;
       ws.onmessage = null;
@@ -324,6 +382,7 @@
     var url = getWsUrl();
     try {
       ws = new WebSocket(url);
+      closedByUser = false;
     } catch (e) {
       setStatus('无法创建 WebSocket', 'error');
       return;
@@ -333,7 +392,7 @@
         type: 'req',
         id: 'connect',
         method: 'connect',
-        params: { role: 'client', token: token }
+        params: { role: 'client', token: token, sessionKey: getSessionKey() }
       }));
     };
     ws.onmessage = function (ev) {
@@ -343,6 +402,7 @@
       } catch (e) { return; }
       if (msg.type === 'res' && msg.id === 'connect') {
         if (msg.ok === true) {
+          reconnectAttempts = 0;
           currentSessionKey = getSessionKey();
           setStatus('已连接 (WebSocket)', 'connected');
           connectBtn.textContent = '已连接';
@@ -353,6 +413,7 @@
           } catch (e) {}
           ws.onmessage = onWsMessage;
           loadChatHistory();
+          setTimeout(loadChatHistory, 500);
           loadHealth();
           loadSessions();
           loadConfig();
@@ -368,6 +429,23 @@
       setStatus('连接已断开', 'error');
       connectBtn.textContent = '连接';
       connectBtn.disabled = false;
+      if (closedByUser) {
+        closedByUser = false;
+        return;
+      }
+      var t = token || (function () { try { return sessionStorage.getItem('aido_token') || localStorage.getItem('aido_token'); } catch (e) { return ''; } })();
+      if (!t) return;
+      if (reconnectAttempts >= maxReconnectAttempts) {
+        setStatus('连接已断开（已达重试上限）', 'error');
+        return;
+      }
+      reconnectAttempts++;
+      var delay = 1000 + (reconnectAttempts - 1) * 500;
+      setTimeout(function () {
+        tokenEl.value = t;
+        token = t;
+        connect();
+      }, Math.min(delay, 3000));
     };
     ws.onerror = function () {
       setStatus('WebSocket 连接失败', 'error');
@@ -387,12 +465,17 @@
     }
   })();
 
+  var AVATAR_USER = '<span class="msg-avatar msg-avatar-user" aria-hidden="true">我</span>';
+  var AVATAR_ASSISTANT = '<span class="msg-avatar msg-avatar-assistant" aria-hidden="true">A</span>';
+
   function appendMessage(role, text) {
     if (!text) return;
     var div = document.createElement('div');
     div.className = 'msg ' + role;
     var body = role === 'assistant' ? markdownToHtml(text) : escapeHtml(text);
-    div.innerHTML = '<div class="role">' + (role === 'user' ? '我' : 'Aido') + '</div><div class="msg-body">' + body + '</div>';
+    var avatar = role === 'user' ? AVATAR_USER : AVATAR_ASSISTANT;
+    var roleText = role === 'user' ? '我' : 'Aido';
+    div.innerHTML = '<div class="msg-head">' + avatar + '<span class="role">' + roleText + '</span></div><div class="msg-body">' + body + '</div>';
     chatHistory.appendChild(div);
     chatHistory.scrollTop = chatHistory.scrollHeight;
   }
@@ -400,13 +483,13 @@
   function appendAssistantMessage(text, toolSteps) {
     var div = document.createElement('div');
     div.className = 'msg assistant';
-    var parts = ['<div class="role">Aido</div>'];
+    var parts = ['<div class="msg-head">' + AVATAR_ASSISTANT + '<span class="role">Aido</span></div>'];
     parts.push(buildExecutionLogFromSteps(toolSteps || []));
-    if (toolSteps && toolSteps.length > 0) parts.push(buildToolStepsHtml(toolSteps));
     parts.push('<div class="msg-body">' + (text ? markdownToHtml(text) : '') + '</div>');
     div.innerHTML = parts.join('');
     chatHistory.appendChild(div);
     chatHistory.scrollTop = chatHistory.scrollHeight;
+    applyExecutionLogState();
   }
 
   function getLastMessageRole(list) {
@@ -432,28 +515,36 @@
         continue;
       }
       if (role === 'assistant' && (msg.tool_calls || msg.toolCalls) && (msg.tool_calls || msg.toolCalls).length > 0) {
-        var calls = msg.tool_calls || msg.toolCalls;
-        var toolSteps = [];
-        var j = i + 1;
-        while (j < list.length && list[j].role === 'tool') {
-          var toolMsg = list[j];
-          var call = calls[toolSteps.length];
-          if (call) {
-            toolSteps.push({
-              toolName: call.name || call.toolName || '',
-              toolParams: (call.arguments != null ? call.arguments : call.toolParams) || '',
-              toolResult: typeof toolMsg.content === 'string' ? toolMsg.content : ''
-            });
+        var allSteps = [];
+        var finalContent = '';
+        var j = i;
+        while (j < list.length) {
+          var cur = list[j];
+          if (cur.role !== 'assistant') break;
+          var hasCalls = (cur.tool_calls || cur.toolCalls) && (cur.tool_calls || cur.toolCalls).length > 0;
+          if (!hasCalls) {
+            finalContent = typeof cur.content === 'string' ? cur.content : (cur.content && cur.content[0] && cur.content[0].text) ? cur.content[0].text : '';
+            j++;
+            break;
           }
-          j++;
+          var calls = cur.tool_calls || cur.toolCalls;
+          var k = j + 1;
+          while (k < list.length && list[k].role === 'tool') {
+            var toolMsg = list[k];
+            var stepIdx = k - (j + 1);
+            var call = stepIdx < calls.length ? calls[stepIdx] : null;
+            if (call) {
+              allSteps.push({
+                toolName: call.name || call.toolName || '',
+                toolParams: (call.arguments != null ? call.arguments : call.toolParams) || '',
+                toolResult: typeof toolMsg.content === 'string' ? toolMsg.content : ''
+              });
+            }
+            k++;
+          }
+          j = k;
         }
-        var nextContent = '';
-        if (j < list.length && list[j].role === 'assistant') {
-          var next = list[j];
-          nextContent = typeof next.content === 'string' ? next.content : (next.content && next.content[0] && next.content[0].text) ? next.content[0].text : '';
-          j++;
-        }
-        appendAssistantMessage(nextContent, toolSteps.length ? toolSteps : null);
+        appendAssistantMessage(finalContent, allSteps.length ? allSteps : null);
         i = j;
         continue;
       }
@@ -470,7 +561,7 @@
 
   function stopHistoryPolling() {
     if (historyPollTimer) {
-      clearInterval(historyPollTimer);
+      clearTimeout(historyPollTimer);
       historyPollTimer = null;
     }
     if (historyPollPlaceholder && historyPollPlaceholder.parentNode) {
@@ -488,15 +579,20 @@
       if (!res || !res.messages) return;
       stopHistoryPolling();
       renderChatHistory(res.messages);
+      applyExecutionLogState();
       if (getLastMessageRole(res.messages) !== 'user') return;
       historyPollPlaceholder = document.createElement('div');
-      historyPollPlaceholder.className = 'msg assistant execution-log';
-      historyPollPlaceholder.innerHTML = '<div class="role">Aido</div><div class="execution-log"><div class="execution-log-line execution-log-status">回复生成中…（若刚刷新页面，正在拉取结果）</div></div>';
+      historyPollPlaceholder.className = 'msg assistant';
+      historyPollPlaceholder.innerHTML = '<div class="msg-head">' + AVATAR_ASSISTANT + '<span class="role">Aido</span></div><details class="execution-log"><summary>执行过程</summary><div class="execution-log-inner"><div class="execution-log-line execution-log-status">正在获取最新回复…（无需刷新）</div></div></details>';
       chatHistory.appendChild(historyPollPlaceholder);
+      applyExecutionLogState();
       chatHistory.scrollTop = chatHistory.scrollHeight;
       var pollStart = Date.now();
       var maxPollMs = 5 * 60 * 1000;
-      historyPollTimer = setInterval(function () {
+      var pollCount = 0;
+      var fastPollRounds = 3;
+      function doPoll() {
+        if (!historyPollPlaceholder || !historyPollPlaceholder.parentNode) return;
         if (Date.now() - pollStart > maxPollMs) {
           stopHistoryPolling();
           return;
@@ -509,9 +605,14 @@
           if (getLastMessageRole(nextRes.messages) === 'assistant') {
             stopHistoryPolling();
             renderChatHistory(nextRes.messages);
+            applyExecutionLogState();
           }
         });
-      }, 2000);
+        pollCount++;
+        var delay = pollCount < fastPollRounds ? 1000 : 2000;
+        historyPollTimer = setTimeout(doPoll, delay);
+      }
+      historyPollTimer = setTimeout(doPoll, 1000);
     });
   }
 
@@ -611,12 +712,13 @@
         if (ev.type === 'stream_start' && !streamDiv) {
           streamDiv = document.createElement('div');
           streamDiv.className = 'msg assistant streaming';
-          streamDiv.innerHTML = '<div class="role">Aido</div><div class="execution-log"></div><div class="assistant-tool-steps"></div><div class="msg-body"></div>';
+          streamDiv.innerHTML = '<div class="msg-head">' + AVATAR_ASSISTANT + '<span class="role">Aido</span></div><details class="execution-log"><summary>执行过程</summary><div class="execution-log-inner"></div></details><div class="msg-body"></div>';
           chatHistory.appendChild(streamDiv);
+          applyExecutionLogState();
           chatHistory.scrollTop = chatHistory.scrollHeight;
         }
         if (!streamDiv) return;
-        var logEl = streamDiv.querySelector('.execution-log');
+        var logEl = streamDiv.querySelector('.execution-log-inner');
         var body = streamDiv.querySelector('.msg-body');
         if (ev.type === 'stream_start' && logEl) {
           appendExecutionLog(logEl, 'status', escapeHtml(EXEC.start));
@@ -646,9 +748,7 @@
         agentEventCallback = null;
         if (streamDiv) {
           streamDiv.classList.remove('streaming');
-          var toolWrap = streamDiv.querySelector('.assistant-tool-steps');
           var body = streamDiv.querySelector('.msg-body');
-          if (toolWrap && res.toolSteps && res.toolSteps.length) toolWrap.innerHTML = buildToolStepsHtml(res.toolSteps);
           if (body) body.innerHTML = res.text ? markdownToHtml(res.text) : '';
         } else {
           appendAssistantMessage(res.text || '', res.toolSteps);
@@ -694,20 +794,7 @@
       lines.push('<div class="execution-log-line execution-log-tool-end">' + EXEC.return + (resultShort ? escapeHtml(resultShort) : '—') + '</div>');
     });
     lines.push('<div class="execution-log-line execution-log-status">' + escapeHtml(EXEC.done) + '</div>');
-    return '<div class="execution-log">' + lines.join('') + '</div>';
-  }
-
-  function buildToolStepsHtml(toolSteps) {
-    if (!toolSteps || !toolSteps.length) return '';
-    var stepsHtml = '<details class="tool-steps"><summary>工具调用 (' + toolSteps.length + ')</summary>';
-    toolSteps.forEach(function (step) {
-      var params = (step.toolParams || '').trim();
-      var result = (step.toolResult || '').trim();
-      stepsHtml += '<details class="tool-step"><summary>' + escapeHtml(step.toolName || 'tool') + '</summary>';
-      if (params) stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">参数</span><pre class="tool-params">' + escapeHtml(params) + '</pre></div>';
-      stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">结果</span><pre class="tool-result">' + escapeHtml(result) + '</pre></div></details>';
-    });
-    return stepsHtml + '</details>';
+    return '<details class="execution-log"><summary>执行过程</summary><div class="execution-log-inner">' + lines.join('') + '</div></details>';
   }
 
   chatInput.addEventListener('keydown', function (e) {
@@ -716,6 +803,30 @@
       sendBtn.click();
     }
   });
+
+  var EXECUTION_LOG_EXPANDED_KEY = 'aido_execution_log_expanded';
+
+  function applyExecutionLogState() {
+    if (!chatHistory) return;
+    var open = executionLogSwitch ? executionLogSwitch.checked : (localStorage.getItem(EXECUTION_LOG_EXPANDED_KEY) === 'true');
+    chatHistory.querySelectorAll('details.execution-log').forEach(function (el) {
+      if (open) el.setAttribute('open', ''); else el.removeAttribute('open');
+    });
+  }
+
+  if (executionLogSwitch) {
+    try {
+      var saved = localStorage.getItem(EXECUTION_LOG_EXPANDED_KEY);
+      executionLogSwitch.checked = saved === 'true';
+    } catch (e) {}
+    applyExecutionLogState();
+    executionLogSwitch.addEventListener('change', function () {
+      try {
+        localStorage.setItem(EXECUTION_LOG_EXPANDED_KEY, this.checked ? 'true' : 'false');
+      } catch (e) {}
+      applyExecutionLogState();
+    });
+  }
 
   function loadSessions() {
     if (!token) {
@@ -897,7 +1008,6 @@
       configPathDisplay.textContent = '—';
       return;
     }
-    showConfigMessage('');
     var p = ws && ws.readyState === 1
       ? wsRequest('config.get', {})
       : apiCall('/config');

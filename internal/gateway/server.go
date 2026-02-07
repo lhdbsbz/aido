@@ -166,6 +166,9 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 	conn.Role = connectParams.Role
 	conn.Channel = connectParams.Channel
 	conn.Capabilities = connectParams.Capabilities
+	if conn.Role == RoleClient && connectParams.SessionKey != "" {
+		conn.SessionKey = connectParams.SessionKey
+	}
 	s.Conns.Add(conn)
 	defer s.Conns.Remove(connID)
 

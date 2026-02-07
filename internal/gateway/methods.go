@@ -66,8 +66,9 @@ func (s *Server) handleChatSend(ctx context.Context, conn *Conn, params json.Raw
 	if chatID == "" {
 		chatID = conn.ID
 	}
+	conn.SessionKey = chatID
 	eventSink := func(evt agent.Event) {
-		conn.Send(EventFrame("agent", evt.Seq, evt))
+		s.Conns.BroadcastToSessionKey(chatID, "agent", evt)
 	}
 	return s.runChatSend(ctx, &p, chatID, eventSink)
 }

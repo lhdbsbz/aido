@@ -1,5 +1,5 @@
-feat: support MCP server config management
+feat(gateway): refactor message distribution mechanism
 
-- optimize gateway server config loading logic
-- enhance frontend MCP config UI
-- update config types and examples
+- enhance connection manager for better message handling
+- update protocol and server for improved message routing
+- optimize gateway web UI

@@ -24,6 +24,13 @@
   <main class="content">
     <section id="panel-chat" class="panel active">
       <div class="chat-area">
+        <div class="chat-toolbar">
+          <label class="execution-log-switch">
+            <input type="checkbox" id="executionLogSwitch" autocomplete="off">
+            <span class="execution-log-switch-slider"></span>
+            <span class="execution-log-switch-label">展开执行过程</span>
+          </label>
+        </div>
         <div id="chatHistory" class="chat-history"></div>
         <div class="chat-input-row">
           <textarea id="chatInput" placeholder="输入消息验证对话..." rows="2"></textarea>

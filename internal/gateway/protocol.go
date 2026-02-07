@@ -32,6 +32,7 @@ type ConnectParams struct {
 	Role         string   `json:"role"`         // "bridge" | "client"
 	Token        string   `json:"token"`        // auth token
 	Channel      string   `json:"channel"`      // for bridges: channel name
+	SessionKey   string   `json:"sessionKey,omitempty"`   // for clients: current session (e.g. webchat:default:deviceId)
 	Capabilities []string `json:"capabilities"` // for bridges: supported features
 }
 
