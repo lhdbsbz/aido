@@ -105,6 +105,14 @@ body {
 .tool-meta { margin-top: 6px; }
 .tool-meta-label { font-size: 0.75rem; color: #666; }
 .tool-params, .tool-result { margin: 4px 0 0; padding: 8px 10px; background: #252525; border-radius: 4px; overflow-x: auto; font-size: 0.8rem; white-space: pre-wrap; word-break: break-word; max-height: 12em; overflow-y: auto; }
+.execution-log { margin: 0.4em 0 0.6em; padding: 8px 10px; background: #1e293b; border-radius: 6px; border-left: 3px solid #64748b; font-size: 0.8rem; color: #94a3b8; }
+.execution-log-line { margin: 2px 0; }
+.execution-log-line.execution-log-status { color: #94a3b8; }
+.execution-log-line.execution-log-tool-start { color: #93c5fd; }
+.execution-log-line.execution-log-tool-end { color: #86efac; }
+.execution-log-line.execution-log-error { color: #f87171; }
+.assistant-tool-steps { margin-top: 0; }
+.assistant-tool-steps:not(:empty) { margin-top: 0.6em; }
 .chat-input-row {
   display: flex;
   gap: 8px;

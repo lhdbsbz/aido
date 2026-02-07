@@ -1,6 +1,12 @@
 (function () {
   var token = '';
   var currentSessionKey = getSessionKey();
+  var ws = null;
+  var pending = {};
+  var nextReqId = 1;
+  var agentEventCallback = null;
+  var historyPollTimer = null;
+  var historyPollPlaceholder = null;
 
   var statusEl = document.getElementById('status');
   var tokenEl = document.getElementById('token');
@@ -27,6 +33,81 @@
   var healthInfo = document.getElementById('healthInfo');
 
   var currentConfig = null;
+
+  function getWsUrl() {
+    var scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return scheme + '//' + location.host + '/ws';
+  }
+
+  function wsRequest(method, params, timeoutMs) {
+    timeoutMs = timeoutMs || 30000;
+    var id = String(nextReqId++);
+    return new Promise(function (resolve, reject) {
+      var t = setTimeout(function () {
+        if (pending[id]) {
+          delete pending[id];
+          reject(new Error('timeout'));
+        }
+      }, timeoutMs);
+      pending[id] = function (ok, data) {
+        clearTimeout(t);
+        if (ok) resolve(data); else reject(data || new Error('request failed'));
+      };
+      if (!ws || ws.readyState !== 1) {
+        delete pending[id];
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      ws.send(JSON.stringify({ type: 'req', id: id, method: method, params: params || {} }));
+    });
+  }
+
+  function onWsMessage(ev) {
+    var msg;
+    try {
+      msg = JSON.parse(ev.data);
+    } catch (e) { return; }
+    if (msg.type === 'res') {
+      var cb = pending[msg.id];
+      if (cb) {
+        delete pending[msg.id];
+        var ok = msg.ok === true;
+        var data = null;
+        if (ok && msg.payload) {
+          try {
+            data = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+          } catch (e) {}
+        } else if (!ok && msg.error) {
+          data = { code: msg.error.code, message: msg.error.message };
+        }
+        cb(ok, data);
+      }
+      return;
+    }
+    if (msg.type === 'event' && msg.event === 'agent' && agentEventCallback && msg.payload) {
+      var payload;
+      try {
+        payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
+      } catch (e) { return; }
+      agentEventCallback(payload);
+    }
+  }
+
+  function closeWs() {
+    agentEventCallback = null;
+    if (ws) {
+      ws.onclose = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.close();
+      ws = null;
+    }
+    Object.keys(pending).forEach(function (id) {
+      var cb = pending[id];
+      if (cb) cb(false, { message: 'connection closed' });
+    });
+    pending = {};
+  }
 
   var OPENAI_MODELS = [
     'gpt-4o', 'gpt-4o-mini', 'gpt-4o-n', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo',
@@ -119,17 +200,14 @@
     var id = 'agent-' + (Date.now().toString(36) + Math.random().toString(36).slice(2));
     var listP = id + '-provider';
     var listM = id + '-model';
-    var listT = id + '-thinking';
     var providerVal = (a.provider || providerNamesList[0] || 'anthropic').trim();
     var modelVal = (a.model || '').trim();
-    var thinkingVal = (a.thinking || '').trim();
     var modelList = getModelList(providerVal);
     var div = document.createElement('div');
     div.className = 'config-block';
     div.innerHTML = '<div class="config-block-row-head"><label>名称 <input type="text" class="config-agent-name" value="' + escapeHtml(name || '') + '" placeholder="如 default"></label><button type="button" class="config-block-remove">删除</button></div>' +
       '<label>绑定 Provider <input type="text" class="config-agent-provider" data-input-select="' + listP + '" autocomplete="off" value="' + escapeHtml(providerVal) + '" placeholder="如 anthropic"></label><datalist id="' + listP + '">' + buildDatalistOptions(providerNamesList) + '</datalist>' +
-      '<label>模型 <input type="text" class="config-agent-model" data-input-select="' + listM + '" autocomplete="off" value="' + escapeHtml(modelVal) + '" placeholder="选或输入模型 ID"></label><datalist id="' + listM + '">' + buildDatalistOptions(modelList) + '</datalist>' +
-      '<label>Thinking <input type="text" class="config-agent-thinking" data-input-select="' + listT + '" autocomplete="off" value="' + escapeHtml(['off', 'low', 'medium', 'high'].indexOf(thinkingVal) >= 0 ? thinkingVal : '') + '" placeholder="— 或 off/low/medium/high"></label><datalist id="' + listT + '"><option value=""><option value="off"><option value="low"><option value="medium"><option value="high"></datalist>';
+      '<label>模型 <input type="text" class="config-agent-model" data-input-select="' + listM + '" autocomplete="off" value="' + escapeHtml(modelVal) + '" placeholder="选或输入模型 ID"></label><datalist id="' + listM + '">' + buildDatalistOptions(modelList) + '</datalist>';
     container.appendChild(div);
     div.querySelector('.config-agent-provider').addEventListener('input', function () {
       var listEl = document.getElementById(listM);
@@ -242,26 +320,58 @@
       setStatus('请填写 Token', 'error');
       return;
     }
-    apiCall('/health').then(function (res) {
-      if (res && res.status === 'ok') {
-        currentSessionKey = getSessionKey();
-        setStatus('已连接', 'connected');
-        connectBtn.textContent = '已连接';
-        connectBtn.disabled = true;
-        try {
-          sessionStorage.setItem('aido_token', token);
-          localStorage.setItem('aido_token', token);
-        } catch (e) {}
-        loadChatHistory();
-        loadHealth();
-        loadSessions();
-        loadConfig();
-      } else {
-        setStatus('认证失败', 'error');
+    closeWs();
+    var url = getWsUrl();
+    try {
+      ws = new WebSocket(url);
+    } catch (e) {
+      setStatus('无法创建 WebSocket', 'error');
+      return;
+    }
+    ws.onopen = function () {
+      ws.send(JSON.stringify({
+        type: 'req',
+        id: 'connect',
+        method: 'connect',
+        params: { role: 'client', token: token }
+      }));
+    };
+    ws.onmessage = function (ev) {
+      var msg;
+      try {
+        msg = JSON.parse(ev.data);
+      } catch (e) { return; }
+      if (msg.type === 'res' && msg.id === 'connect') {
+        if (msg.ok === true) {
+          currentSessionKey = getSessionKey();
+          setStatus('已连接 (WebSocket)', 'connected');
+          connectBtn.textContent = '已连接';
+          connectBtn.disabled = true;
+          try {
+            sessionStorage.setItem('aido_token', token);
+            localStorage.setItem('aido_token', token);
+          } catch (e) {}
+          ws.onmessage = onWsMessage;
+          loadChatHistory();
+          loadHealth();
+          loadSessions();
+          loadConfig();
+        } else {
+          setStatus('认证失败', 'error');
+          closeWs();
+        }
+        return;
       }
-    }).catch(function () {
-      setStatus('连接失败', 'error');
-    });
+    };
+    ws.onclose = function () {
+      ws = null;
+      setStatus('连接已断开', 'error');
+      connectBtn.textContent = '连接';
+      connectBtn.disabled = false;
+    };
+    ws.onerror = function () {
+      setStatus('WebSocket 连接失败', 'error');
+    };
   }
 
   connectBtn.addEventListener('click', connect);
@@ -290,36 +400,118 @@
   function appendAssistantMessage(text, toolSteps) {
     var div = document.createElement('div');
     div.className = 'msg assistant';
-    var parts = [];
-    if (toolSteps && toolSteps.length > 0) {
-      var stepsHtml = '<details class="tool-steps"><summary>工具调用 (' + toolSteps.length + ')</summary>';
-      toolSteps.forEach(function (step, i) {
-        var params = (step.toolParams || '').trim();
-        var result = (step.toolResult || '').trim();
-        stepsHtml += '<details class="tool-step"><summary>' + escapeHtml(step.toolName || 'tool') + '</summary>';
-        if (params) stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">参数</span><pre class="tool-params">' + escapeHtml(params) + '</pre></div>';
-        stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">结果</span><pre class="tool-result">' + escapeHtml(result) + '</pre></div></details>';
-      });
-      stepsHtml += '</details>';
-      parts.push(stepsHtml);
-    }
-    if (text) parts.push(markdownToHtml(text));
-    div.innerHTML = '<div class="role">Aido</div><div class="msg-body">' + parts.join('') + '</div>';
+    var parts = ['<div class="role">Aido</div>'];
+    parts.push(buildExecutionLogFromSteps(toolSteps || []));
+    if (toolSteps && toolSteps.length > 0) parts.push(buildToolStepsHtml(toolSteps));
+    parts.push('<div class="msg-body">' + (text ? markdownToHtml(text) : '') + '</div>');
+    div.innerHTML = parts.join('');
     chatHistory.appendChild(div);
     chatHistory.scrollTop = chatHistory.scrollHeight;
   }
 
+  function getLastMessageRole(list) {
+    if (!list || !list.length) return null;
+    for (var idx = list.length - 1; idx >= 0; idx--) {
+      var r = list[idx].role;
+      if (r === 'user' || r === 'assistant') return r;
+    }
+    return null;
+  }
+
+  function renderChatHistory(list) {
+    if (!list || !list.length) return;
+    chatHistory.innerHTML = '';
+    var i = 0;
+    while (i < list.length) {
+      var msg = list[i];
+      var role = msg.role;
+      var content = typeof msg.content === 'string' ? msg.content : (msg.content && msg.content[0] && msg.content[0].text) ? msg.content[0].text : '';
+      if (role === 'user') {
+        appendMessage('user', content);
+        i++;
+        continue;
+      }
+      if (role === 'assistant' && (msg.tool_calls || msg.toolCalls) && (msg.tool_calls || msg.toolCalls).length > 0) {
+        var calls = msg.tool_calls || msg.toolCalls;
+        var toolSteps = [];
+        var j = i + 1;
+        while (j < list.length && list[j].role === 'tool') {
+          var toolMsg = list[j];
+          var call = calls[toolSteps.length];
+          if (call) {
+            toolSteps.push({
+              toolName: call.name || call.toolName || '',
+              toolParams: (call.arguments != null ? call.arguments : call.toolParams) || '',
+              toolResult: typeof toolMsg.content === 'string' ? toolMsg.content : ''
+            });
+          }
+          j++;
+        }
+        var nextContent = '';
+        if (j < list.length && list[j].role === 'assistant') {
+          var next = list[j];
+          nextContent = typeof next.content === 'string' ? next.content : (next.content && next.content[0] && next.content[0].text) ? next.content[0].text : '';
+          j++;
+        }
+        appendAssistantMessage(nextContent, toolSteps.length ? toolSteps : null);
+        i = j;
+        continue;
+      }
+      if (role === 'assistant') {
+        appendMessage('assistant', content);
+        i++;
+        continue;
+      }
+      if (role === 'tool') { i++; continue; }
+      i++;
+    }
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
+  function stopHistoryPolling() {
+    if (historyPollTimer) {
+      clearInterval(historyPollTimer);
+      historyPollTimer = null;
+    }
+    if (historyPollPlaceholder && historyPollPlaceholder.parentNode) {
+      historyPollPlaceholder.remove();
+      historyPollPlaceholder = null;
+    }
+  }
+
   function loadChatHistory() {
     if (!currentSessionKey) return;
-    apiCall('/chat/history?sessionKey=' + encodeURIComponent(currentSessionKey)).then(function (res) {
+    var p = ws && ws.readyState === 1
+      ? wsRequest('chat.history', { sessionKey: currentSessionKey })
+      : apiCall('/chat/history?sessionKey=' + encodeURIComponent(currentSessionKey));
+    p.then(function (res) {
       if (!res || !res.messages) return;
-      chatHistory.innerHTML = '';
-      res.messages.forEach(function (msg) {
-        var role = msg.role;
-        var content = typeof msg.content === 'string' ? msg.content : (msg.content && msg.content[0] && msg.content[0].text) ? msg.content[0].text : '';
-        if (role === 'user' || role === 'assistant') appendMessage(role, content);
-      });
+      stopHistoryPolling();
+      renderChatHistory(res.messages);
+      if (getLastMessageRole(res.messages) !== 'user') return;
+      historyPollPlaceholder = document.createElement('div');
+      historyPollPlaceholder.className = 'msg assistant execution-log';
+      historyPollPlaceholder.innerHTML = '<div class="role">Aido</div><div class="execution-log"><div class="execution-log-line execution-log-status">回复生成中…（若刚刷新页面，正在拉取结果）</div></div>';
+      chatHistory.appendChild(historyPollPlaceholder);
       chatHistory.scrollTop = chatHistory.scrollHeight;
+      var pollStart = Date.now();
+      var maxPollMs = 5 * 60 * 1000;
+      historyPollTimer = setInterval(function () {
+        if (Date.now() - pollStart > maxPollMs) {
+          stopHistoryPolling();
+          return;
+        }
+        var q = ws && ws.readyState === 1
+          ? wsRequest('chat.history', { sessionKey: currentSessionKey })
+          : apiCall('/chat/history?sessionKey=' + encodeURIComponent(currentSessionKey));
+        q.then(function (nextRes) {
+          if (!nextRes || !nextRes.messages) return;
+          if (getLastMessageRole(nextRes.messages) === 'assistant') {
+            stopHistoryPolling();
+            renderChatHistory(nextRes.messages);
+          }
+        });
+      }, 2000);
     });
   }
 
@@ -410,12 +602,113 @@
   sendBtn.addEventListener('click', function () {
     var text = chatInput.value.trim();
     if (!text || !token) return;
+    stopHistoryPolling();
     appendMessage('user', text);
     chatInput.value = '';
-    apiCall('/chat/send', { method: 'POST', body: { text: text, sessionKey: currentSessionKey } }).then(function (res) {
-      if (res) appendAssistantMessage(res.text || '', res.toolSteps);
-    });
+    if (ws && ws.readyState === 1) {
+      var streamDiv = null;
+      agentEventCallback = function (ev) {
+        if (ev.type === 'stream_start' && !streamDiv) {
+          streamDiv = document.createElement('div');
+          streamDiv.className = 'msg assistant streaming';
+          streamDiv.innerHTML = '<div class="role">Aido</div><div class="execution-log"></div><div class="assistant-tool-steps"></div><div class="msg-body"></div>';
+          chatHistory.appendChild(streamDiv);
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+        if (!streamDiv) return;
+        var logEl = streamDiv.querySelector('.execution-log');
+        var body = streamDiv.querySelector('.msg-body');
+        if (ev.type === 'stream_start' && logEl) {
+          appendExecutionLog(logEl, 'status', escapeHtml(EXEC.start));
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        } else if (ev.type === 'tool_start' && logEl) {
+          var params = (ev.toolParams || '').trim();
+          var short = params.length > 80 ? params.slice(0, 80) + '…' : params;
+          appendExecutionLog(logEl, 'tool-start', EXEC.call + escapeHtml(ev.toolName || 'tool') + (short ? ': ' + escapeHtml(short) : ''));
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        } else if (ev.type === 'tool_end' && logEl) {
+          var res = (ev.toolResult || '').trim();
+          var resShort = res.length > 120 ? res.slice(0, 120) + '…' : res;
+          appendExecutionLog(logEl, 'tool-end', EXEC.return + (resShort ? escapeHtml(resShort) : '—'));
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        } else if (ev.type === 'text_delta' && ev.text && body) {
+          body.innerHTML += escapeHtml(ev.text);
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        } else if (ev.type === 'done' && logEl) {
+          appendExecutionLog(logEl, 'status', escapeHtml(EXEC.done));
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        } else if (ev.type === 'error' && ev.error && logEl) {
+          appendExecutionLog(logEl, 'error', EXEC.error + escapeHtml(ev.error));
+          chatHistory.scrollTop = chatHistory.scrollHeight;
+        }
+      };
+      wsRequest('chat.send', { text: text, sessionKey: currentSessionKey }, 120000).then(function (res) {
+        agentEventCallback = null;
+        if (streamDiv) {
+          streamDiv.classList.remove('streaming');
+          var toolWrap = streamDiv.querySelector('.assistant-tool-steps');
+          var body = streamDiv.querySelector('.msg-body');
+          if (toolWrap && res.toolSteps && res.toolSteps.length) toolWrap.innerHTML = buildToolStepsHtml(res.toolSteps);
+          if (body) body.innerHTML = res.text ? markdownToHtml(res.text) : '';
+        } else {
+          appendAssistantMessage(res.text || '', res.toolSteps);
+        }
+        chatHistory.scrollTop = chatHistory.scrollHeight;
+      }).catch(function (err) {
+        agentEventCallback = null;
+        if (streamDiv) streamDiv.remove();
+        appendMessage('assistant', '发送失败: ' + (err && err.message ? err.message : '未知错误'));
+      });
+    } else {
+      apiCall('/chat/send', { method: 'POST', body: { text: text, sessionKey: currentSessionKey } }).then(function (res) {
+        if (res) appendAssistantMessage(res.text || '', res.toolSteps);
+      });
+    }
   });
+
+  var EXEC = {
+    start: '开始执行…',
+    call: '调用 ',
+    return: '→ 返回 ',
+    done: '完成',
+    error: '错误: '
+  };
+
+  function appendExecutionLog(container, kind, html) {
+    var line = document.createElement('div');
+    line.className = 'execution-log-line execution-log-' + (kind || 'status');
+    line.innerHTML = html;
+    container.appendChild(line);
+  }
+
+  function buildExecutionLogFromSteps(toolSteps) {
+    var steps = toolSteps || [];
+    var lines = [];
+    lines.push('<div class="execution-log-line execution-log-status">' + escapeHtml(EXEC.start) + '</div>');
+    steps.forEach(function (step) {
+      var params = (step.toolParams || '').trim();
+      var result = (step.toolResult || '').trim();
+      var paramsShort = params.length > 80 ? params.slice(0, 80) + '…' : params;
+      var resultShort = result.length > 120 ? result.slice(0, 120) + '…' : result;
+      lines.push('<div class="execution-log-line execution-log-tool-start">' + EXEC.call + escapeHtml(step.toolName || 'tool') + (paramsShort ? ': ' + escapeHtml(paramsShort) : '') + '</div>');
+      lines.push('<div class="execution-log-line execution-log-tool-end">' + EXEC.return + (resultShort ? escapeHtml(resultShort) : '—') + '</div>');
+    });
+    lines.push('<div class="execution-log-line execution-log-status">' + escapeHtml(EXEC.done) + '</div>');
+    return '<div class="execution-log">' + lines.join('') + '</div>';
+  }
+
+  function buildToolStepsHtml(toolSteps) {
+    if (!toolSteps || !toolSteps.length) return '';
+    var stepsHtml = '<details class="tool-steps"><summary>工具调用 (' + toolSteps.length + ')</summary>';
+    toolSteps.forEach(function (step) {
+      var params = (step.toolParams || '').trim();
+      var result = (step.toolResult || '').trim();
+      stepsHtml += '<details class="tool-step"><summary>' + escapeHtml(step.toolName || 'tool') + '</summary>';
+      if (params) stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">参数</span><pre class="tool-params">' + escapeHtml(params) + '</pre></div>';
+      stepsHtml += '<div class="tool-meta"><span class="tool-meta-label">结果</span><pre class="tool-result">' + escapeHtml(result) + '</pre></div></details>';
+    });
+    return stepsHtml + '</details>';
+  }
 
   chatInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -429,7 +722,10 @@
       sessionsList.innerHTML = '<div class="session-item">请先连接</div>';
       return;
     }
-    apiCall('/sessions').then(function (res) {
+    var p = ws && ws.readyState === 1
+      ? wsRequest('sessions.list', {})
+      : apiCall('/sessions');
+    p.then(function (res) {
       if (!res || !res.sessions) {
         sessionsList.innerHTML = '<div class="session-item">暂无会话或未连接</div>';
         return;
@@ -448,7 +744,10 @@
       healthInfo.textContent = '请先连接';
       return;
     }
-    apiCall('/health').then(function (res) {
+    var p = ws && ws.readyState === 1
+      ? wsRequest('health', {})
+      : apiCall('/health');
+    p.then(function (res) {
       healthInfo.textContent = res ? JSON.stringify(res, null, 2) : '获取失败';
     });
   }
@@ -549,12 +848,10 @@
       name = name.trim();
       var provider = getAgentProvider(block);
       var modelId = getAgentModelId(block);
-      var thinking = (block.querySelector('.config-agent-thinking') || {}).value || '';
       var base = (currentConfig && currentConfig.agents && currentConfig.agents[name]) || {};
       cfg.agents[name] = {
         provider: provider,
         model: modelId,
-        thinking: thinking,
         tools: { allow: base.tools && base.tools.allow, deny: base.tools && base.tools.deny },
         fallbacks: base.fallbacks,
         compaction: base.compaction,
@@ -601,7 +898,10 @@
       return;
     }
     showConfigMessage('');
-    apiCall('/config').then(function (res) {
+    var p = ws && ws.readyState === 1
+      ? wsRequest('config.get', {})
+      : apiCall('/config');
+    p.then(function (res) {
       if (res) fillConfigForm(res);
       else showConfigMessage('获取配置失败', true);
     });
@@ -613,7 +913,7 @@
     configAgentAdd.addEventListener('click', function () {
       var providerNames = (currentConfig && currentConfig.providers && typeof currentConfig.providers === 'object') ? Object.keys(currentConfig.providers) : [];
       if (providerNames.length === 0) providerNames = ['anthropic', 'openai'];
-      var defaultAgent = { provider: providerNames[0] || 'anthropic', model: '', thinking: 'medium', tools: {} };
+      var defaultAgent = { provider: providerNames[0] || 'anthropic', model: '', tools: {} };
       appendAgentBlock(configAgents, '', defaultAgent, providerNames);
     });
   }

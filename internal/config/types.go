@@ -22,7 +22,6 @@ type AgentConfig struct {
 	Provider   string           `yaml:"provider" json:"provider"`     // 绑定的 provider（providers 的 key）
 	Model      string           `yaml:"model" json:"model"`          // 模型 id（如 claude-sonnet-4-20250514）
 	Fallbacks  []string         `yaml:"fallbacks" json:"fallbacks"`  // 备选，可为 "modelId" 或 "provider/modelId"
-	Thinking   string           `yaml:"thinking" json:"thinking"`
 	Tools      AgentToolsConfig `yaml:"tools" json:"tools"`
 	Compaction CompactionConfig `yaml:"compaction" json:"compaction"`
 	Workspace  string           `yaml:"workspace" json:"workspace"`
@@ -91,7 +90,6 @@ func DefaultConfig() *Config {
 			"default": {
 				Provider: "anthropic",
 				Model:    "claude-sonnet-4-20250514",
-				Thinking: "medium",
 				Tools:    AgentToolsConfig{},
 				Compaction: CompactionConfig{
 					KeepRecentTokens: 20000,
@@ -102,7 +100,6 @@ func DefaultConfig() *Config {
 			"openai": {
 				Provider: "openai",
 				Model:    "gpt-4o",
-				Thinking: "medium",
 				Tools:    AgentToolsConfig{},
 				Compaction: CompactionConfig{
 					KeepRecentTokens: 20000,

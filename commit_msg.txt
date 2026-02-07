@@ -1,0 +1,5 @@
+feat: support MCP server config management
+
+- optimize gateway server config loading logic
+- enhance frontend MCP config UI
+- update config types and examples

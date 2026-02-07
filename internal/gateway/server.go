@@ -189,20 +189,50 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 			continue
 		}
 
-		if frame.Method != "inbound.message" {
-			conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "use HTTP /api for management; only inbound.message is supported over WebSocket"))
+		ctx := context.Background()
+		if conn.Role == RoleBridge {
+			if frame.Method != "inbound.message" {
+				conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "bridge only supports inbound.message"))
+				continue
+			}
+			go func(f Frame) {
+				result, err := s.handleInboundMessage(ctx, conn, f.Params)
+				if err != nil {
+					conn.Send(ResErr(f.ID, "ERROR", err.Error()))
+					return
+				}
+				conn.Send(ResOK(f.ID, result))
+			}(frame)
 			continue
 		}
 
-		go func(f Frame) {
-			ctx := context.Background()
-			result, err := s.handleInboundMessage(ctx, conn, f.Params)
-			if err != nil {
-				conn.Send(ResErr(f.ID, "ERROR", err.Error()))
-				return
+		if conn.Role == RoleClient {
+			var result any
+			var err error
+			switch frame.Method {
+			case "chat.send":
+				result, err = s.handleChatSend(ctx, conn, frame.Params)
+			case "chat.history":
+				result, err = s.handleChatHistory(ctx, conn, frame.Params)
+			case "sessions.list":
+				result, err = s.handleSessionsList(ctx, conn, frame.Params)
+			case "health":
+				result, err = s.handleHealthMethod(ctx, conn, frame.Params)
+			case "config.get":
+				result, err = s.handleConfigGet(ctx, conn, frame.Params)
+			default:
+				conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "client supports: chat.send, chat.history, sessions.list, health, config.get"))
+				continue
 			}
-			conn.Send(ResOK(f.ID, result))
-		}(frame)
+			if err != nil {
+				conn.Send(ResErr(frame.ID, "ERROR", err.Error()))
+				continue
+			}
+			conn.Send(ResOK(frame.ID, result))
+			continue
+		}
+
+		conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "unknown role"))
 	}
 }
 

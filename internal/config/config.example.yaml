@@ -32,7 +32,6 @@ agents:
     model: "claude-sonnet-4-20250514"
     fallbacks:
       - "openai/gpt-4o"
-    thinking: "medium"
     workspace: "./workspace"
     compaction:
       keepRecentTokens: 20000
@@ -43,7 +42,6 @@ agents:
   openai:
     provider: "openai"
     model: "gpt-4o"
-    thinking: "medium"
     workspace: "./workspace"
     compaction:
       keepRecentTokens: 20000
