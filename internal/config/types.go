@@ -12,6 +12,7 @@ type GatewayConfig struct {
 	Auth         AuthConfig `yaml:"auth" json:"auth"`
 	CurrentAgent string     `yaml:"currentAgent" json:"currentAgent"`   // 固定使用的 agent，空则可由请求指定
 	ToolsProfile string     `yaml:"toolsProfile" json:"toolsProfile"`   // 全局工具集档位：minimal | coding | messaging | full
+	Locale       string     `yaml:"locale" json:"locale"`               // 系统提示词语言：en（英语）| zh（中文），默认 zh
 }
 
 type AuthConfig struct {
@@ -72,44 +73,4 @@ type MCPServerConfig struct {
 	URL       string            `yaml:"url" json:"url"`
 	Transport string            `yaml:"transport" json:"transport"`
 	Env       map[string]string `yaml:"env" json:"env"`
-}
-
-func DefaultConfig() *Config {
-	return &Config{
-		Gateway: GatewayConfig{
-			Port:         19800,
-			CurrentAgent: "default",
-			ToolsProfile: "coding",
-		},
-		Providers: map[string]ProviderConfig{
-			"anthropic": { Type: "anthropic" },
-			"openai":    { Type: "openai" },
-			"deepseek":  { BaseURL: "https://api.deepseek.com", Type: "openai" },
-			"minimax":   { BaseURL: "https://api.minimaxi.com/anthropic", Type: "anthropic" }, // 国内默认；海外用 https://api.minimax.io/anthropic
-		},
-		Agents: map[string]AgentConfig{
-			"default": {
-				Provider: "anthropic",
-				Model:    "claude-sonnet-4-20250514",
-				Tools:    AgentToolsConfig{},
-				Compaction: CompactionConfig{
-					ContextWindow:    0,
-					KeepRecentTokens: 20000,
-					ReserveTokens:    16384,
-					ChunkRatio:       0.4,
-				},
-			},
-			"openai": {
-				Provider: "openai",
-				Model:    "gpt-4o",
-				Tools:    AgentToolsConfig{},
-				Compaction: CompactionConfig{
-					ContextWindow:    0,
-					KeepRecentTokens: 20000,
-					ReserveTokens:    16384,
-					ChunkRatio:       0.4,
-				},
-			},
-		},
-	}
 }

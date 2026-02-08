@@ -10,6 +10,7 @@ import (
 
 	"github.com/lhdbsbz/aido/internal/config"
 	"github.com/lhdbsbz/aido/internal/llm"
+	"github.com/lhdbsbz/aido/internal/prompts"
 	"github.com/lhdbsbz/aido/internal/skills"
 )
 
@@ -17,6 +18,7 @@ const maxBootstrapChars = 20000
 
 // PromptBuilder assembles the system prompt from multiple sections.
 type PromptBuilder struct {
+	Prompts     *prompts.Prompts
 	AgentConfig *config.AgentConfig
 	AgentID     string
 	ToolDefs    []llm.ToolDef
@@ -38,37 +40,40 @@ func (b *PromptBuilder) Build() string {
 }
 
 func (b *PromptBuilder) writeIdentity(sb *strings.Builder) {
-	sb.WriteString("You are Aido, an AI assistant running as a personal agent.\n")
-	sb.WriteString("You help the user by using tools to accomplish tasks.\n")
-	sb.WriteString("Always be direct, concise, and helpful.\n\n")
+	if b.Prompts.AuthorAndRepo != "" {
+		sb.WriteString(b.Prompts.AuthorAndRepo)
+	}
+	sb.WriteString(b.Prompts.IdentityLine1)
+	sb.WriteString(b.Prompts.IdentityLine2)
+	sb.WriteString(b.Prompts.IdentityLine3)
 }
 
 func (b *PromptBuilder) writeTooling(sb *strings.Builder) {
 	if len(b.ToolDefs) == 0 {
 		return
 	}
-	sb.WriteString("## Available Tools\n\n")
-	sb.WriteString("You have the following tools available. Use them when needed:\n\n")
+	sb.WriteString(b.Prompts.SectionToolsTitle)
+	sb.WriteString(b.Prompts.ToolsIntro)
 	for _, t := range b.ToolDefs {
 		fmt.Fprintf(sb, "- **%s**: %s\n", t.Name, t.Description)
 	}
-	sb.WriteString("\nWhen you need to perform actions like reading files, executing commands, or searching the web, use the appropriate tool.\n")
-	sb.WriteString("You can chain multiple tool calls in sequence to accomplish complex tasks.\n\n")
+	sb.WriteString(b.Prompts.ToolsHint)
+	sb.WriteString(b.Prompts.ToolsChainHint)
 }
 
 func (b *PromptBuilder) writeSkills(sb *strings.Builder) {
 	if len(b.Skills) == 0 {
 		return
 	}
-	sb.WriteString("## Available Skills\n\n")
+	sb.WriteString(b.Prompts.SectionSkillsTitle)
 	sb.WriteString("<available_skills>\n")
 	for _, s := range b.Skills {
 		fmt.Fprintf(sb, "  <skill>\n    <name>%s</name>\n    <description>%s</description>\n    <location>%s</location>\n  </skill>\n",
 			s.Name, s.Description, s.Path)
 	}
 	sb.WriteString("</available_skills>\n\n")
-	sb.WriteString("If a skill is relevant to the user's request, use the read_file tool to read its SKILL.md for detailed instructions.\n")
-	sb.WriteString("Only read one skill at a time, and only when needed.\n\n")
+	sb.WriteString(b.Prompts.SkillRelevantHint)
+	sb.WriteString(b.Prompts.SkillOneAtATimeHint)
 }
 
 func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
@@ -76,22 +81,11 @@ func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
 		return
 	}
 
-	sb.WriteString("## Workspace\n\n")
-	fmt.Fprintf(sb, "Working directory: %s\n\n", b.Workspace)
+	sb.WriteString(b.Prompts.SectionWorkspaceTitle)
+	fmt.Fprintf(sb, b.Prompts.WorkingDirLabel, b.Workspace)
 
-	bootstrapFiles := []struct {
-		name    string
-		display string
-		note    string
-	}{
-		{"SOUL.md", "SOUL.md (Persona & Tone)", "Embody this persona and tone in all interactions."},
-		{"AGENTS.md", "AGENTS.md (Operating Instructions)", "Follow these instructions."},
-		{"TOOLS.md", "TOOLS.md (Tool Usage Notes)", ""},
-		{"USER.md", "USER.md (User Profile)", ""},
-	}
-
-	for _, bf := range bootstrapFiles {
-		path := filepath.Join(b.Workspace, bf.name)
+	for _, bf := range b.Prompts.BootstrapFiles {
+		path := filepath.Join(b.Workspace, bf.Name)
 		content, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -100,10 +94,10 @@ func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
 		if text == "" {
 			continue
 		}
-		text = truncateBootstrap(text, bf.name)
-		fmt.Fprintf(sb, "### %s\n\n", bf.display)
-		if bf.note != "" {
-			fmt.Fprintf(sb, "*%s*\n\n", bf.note)
+		text = truncateBootstrap(text, bf.Name, b.Prompts.TruncateBootstrapFmt)
+		fmt.Fprintf(sb, "### %s\n\n", bf.Display)
+		if bf.Note != "" {
+			fmt.Fprintf(sb, "*%s*\n\n", bf.Note)
 		}
 		sb.WriteString(text)
 		sb.WriteString("\n\n")
@@ -111,7 +105,7 @@ func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
 }
 
 func (b *PromptBuilder) writeRuntime(sb *strings.Builder) {
-	sb.WriteString("## Runtime Information\n\n")
+	sb.WriteString(b.Prompts.SectionRuntimeTitle)
 	fmt.Fprintf(sb, "- Agent: %s\n", b.AgentID)
 	modelDisplay := b.AgentConfig.Model
 	if b.AgentConfig.Provider != "" {
@@ -125,19 +119,19 @@ func (b *PromptBuilder) writeRuntime(sb *strings.Builder) {
 	}
 	if path := config.Path(); path != "" {
 		fmt.Fprintf(sb, "- Config file: %s\n", path)
-		sb.WriteString("  You can read or edit this file to change agent behavior (e.g. model, tools, skills). Changes take effect after Aido restarts.\n")
+		sb.WriteString(b.Prompts.ConfigFileHint)
 	}
 	sb.WriteString("\n")
 }
 
 // truncateBootstrap truncates a bootstrap file keeping 70% head + 20% tail.
-func truncateBootstrap(content, filename string) string {
+func truncateBootstrap(content, filename, truncateFmt string) string {
 	if len(content) <= maxBootstrapChars {
 		return content
 	}
 	headSize := int(float64(maxBootstrapChars) * 0.7)
 	tailSize := int(float64(maxBootstrapChars) * 0.2)
 	return content[:headSize] +
-		fmt.Sprintf("\n\n[...truncated, read %s for full content...]\n\n", filename) +
+		fmt.Sprintf(truncateFmt, filename) +
 		content[len(content)-tailSize:]
 }

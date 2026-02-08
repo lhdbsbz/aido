@@ -81,8 +81,11 @@ func serve() error {
 				return fmt.Errorf("load created config: %w", err)
 			}
 		} else {
-			slog.Warn("config load failed, using defaults", "path", cfgPath, "error", err)
-			cfg = config.DefaultConfig()
+			slog.Warn("config load failed, using example as template", "path", cfgPath, "error", err)
+			cfg, err = config.LoadFromExample(filepath.Dir(cfgPath))
+			if err != nil {
+				return fmt.Errorf("load config and fallback example: %w", err)
+			}
 		}
 	}
 	config.Set(cfg)

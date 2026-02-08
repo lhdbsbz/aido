@@ -7,22 +7,16 @@ import (
 	"time"
 
 	"github.com/lhdbsbz/aido/internal/llm"
+	"github.com/lhdbsbz/aido/internal/prompts"
 )
-
-const summarizePrompt = `Please summarize the following conversation concisely. 
-Preserve key facts, decisions, and context that would be needed to continue the conversation.
-Keep tool call results that contain important data.
-Be concise but complete.
-
-Conversation to summarize:
-%s`
 
 // Compactor handles session context window management via LLM summarization.
 type Compactor struct {
-	KeepRecentTokens int     // tokens to keep at the end (default: 20000)
-	ReserveTokens    int     // tokens to reserve for new content (default: 16384)
-	ChunkRatio       float64 // ratio for chunking messages to summarize (default: 0.4)
-	SafetyMargin     float64 // multiplier for token estimation inaccuracy (default: 1.2)
+	KeepRecentTokens         int     // tokens to keep at the end (default: 20000)
+	ReserveTokens            int     // tokens to reserve for new content (default: 16384)
+	ChunkRatio               float64 // ratio for chunking messages to summarize (default: 0.4)
+	SafetyMargin             float64 // multiplier for token estimation inaccuracy (default: 1.2)
+	SummarizePromptTemplate  string  // prompt template with one %s for conversation body; empty uses default (en)
 }
 
 func DefaultCompactor() *Compactor {
@@ -132,7 +126,11 @@ func (c *Compactor) summarizeChunk(ctx context.Context, client llm.Client, messa
 		}
 	}
 
-	prompt := fmt.Sprintf(summarizePrompt, sb.String())
+	tmpl := c.SummarizePromptTemplate
+	if tmpl == "" {
+		tmpl = prompts.Get("zh").SummarizePromptTemplate
+	}
+	prompt := fmt.Sprintf(tmpl, sb.String())
 
 	stream, err := client.Chat(ctx, llm.ChatParams{
 		Provider: baseParams.Provider,

@@ -1,11 +1,11 @@
 package gateway
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/lhdbsbz/aido/internal/agent"
 	"github.com/lhdbsbz/aido/internal/config"
 )
 
@@ -80,12 +80,13 @@ func (s *Server) ginAPISessions(c *gin.Context) {
 }
 
 func (s *Server) ginAPIChatHistory(c *gin.Context) {
-	sessionKey := c.Query("sessionKey")
-	if sessionKey == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "sessionKey required"})
+	channel := c.Query("channel")
+	channelChatId := c.Query("channelChatId")
+	if channel == "" || channelChatId == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "channel and channelChatId required"})
 		return
 	}
-	result, err := s.getChatHistory(c.Request.Context(), sessionKey)
+	result, err := s.getChatHistory(c.Request.Context(), channel, channelChatId)
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
@@ -94,24 +95,38 @@ func (s *Server) ginAPIChatHistory(c *gin.Context) {
 }
 
 func (s *Server) ginAPIChatSend(c *gin.Context) {
-	var body ChatSendParams
+	var body struct {
+		Channel        string            `json:"channel"`
+		ChannelChatID  string            `json:"channelChatId"`
+		Text           string            `json:"text"`
+		Attachments    []AttachmentParam `json:"attachments,omitempty"`
+	}
 	if err := c.ShouldBindJSON(&body); err != nil {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
-	if body.Text == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "text required"})
+	if body.Channel == "" || body.Text == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "channel and text required"})
 		return
 	}
-	chatID := body.SessionKey
-	if chatID == "" {
-		chatID = "webchat:default:manager"
+	if body.ChannelChatID == "" {
+		body.ChannelChatID = "main"
 	}
-	var eventSink agent.EventSink = func(agent.Event) {}
-	result, err := s.runChatSend(c.Request.Context(), &body, chatID, eventSink)
+	params := MessageSendParams{
+		Channel:        body.Channel,
+		ChannelChatID:  body.ChannelChatID,
+		Text:           body.Text,
+		Attachments:    body.Attachments,
+	}
+	result, err := s.handleMessageSend(c.Request.Context(), nil, mustMarshal(params))
 	if err != nil {
 		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+func mustMarshal(v any) []byte {
+	b, _ := json.Marshal(v)
+	return b
 }

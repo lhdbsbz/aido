@@ -62,14 +62,50 @@ func Load(path string) (*Config, error) {
 
 	expanded := expandEnvVars(string(data))
 
-	cfg := DefaultConfig()
-	if err := yaml.Unmarshal([]byte(expanded), cfg); err != nil {
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
-	resolveRelativePaths(cfg, filepath.Dir(path))
+	ensureNonNilMaps(&cfg)
+	applyLoadDefaults(&cfg)
+	resolveRelativePaths(&cfg, filepath.Dir(path))
 
-	return cfg, nil
+	return &cfg, nil
+}
+
+func ensureNonNilMaps(cfg *Config) {
+	if cfg.Agents == nil {
+		cfg.Agents = make(map[string]AgentConfig)
+	}
+	if cfg.Providers == nil {
+		cfg.Providers = make(map[string]ProviderConfig)
+	}
+	if cfg.Tools.MCP == nil {
+		cfg.Tools.MCP = []MCPServerConfig{}
+	}
+}
+
+func applyLoadDefaults(cfg *Config) {
+	if cfg.Gateway.Port <= 0 {
+		cfg.Gateway.Port = 19800
+	}
+	if cfg.Gateway.ToolsProfile == "" {
+		cfg.Gateway.ToolsProfile = "coding"
+	}
+}
+
+// LoadFromExample unmarshals the embedded config.example.yaml as the default config.
+// baseDir is used to resolve relative paths (e.g. workspace). Use config dir or ResolveHome().
+func LoadFromExample(baseDir string) (*Config, error) {
+	expanded := expandEnvVars(string(exampleConfigBytes))
+	var cfg Config
+	if err := yaml.Unmarshal([]byte(expanded), &cfg); err != nil {
+		return nil, fmt.Errorf("parse example config: %w", err)
+	}
+	ensureNonNilMaps(&cfg)
+	resolveRelativePaths(&cfg, baseDir)
+	return &cfg, nil
 }
 
 func expandEnvVars(content string) string {

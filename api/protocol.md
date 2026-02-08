@@ -1,125 +1,109 @@
 # Aido WebSocket Protocol
 
+## Design
+
+- **Single user** (no userId in protocol).
+- **Multiple conversations per channel**: Web, Feishu, Telegram each have their own history; identified by `(channel, channelChatId)`.
+- **Agent** is determined by gateway config only; clients do not send or choose agentId.
+- **One protocol** for all: Bridge and Client use the same `message.send`; only Connect params differ by role.
+
 ## Connection
 
-Connect to `ws://<host>:19800/ws`
+- **URL**: `ws://<host>:<port>/ws`
+- **First frame**: must be `connect` (type=req, method=connect, params=…)
 
-### Handshake
+### Connect params (single convention)
 
-First message must be a `connect` request:
+**Bridge** sends:
+
+| Field | Description |
+|-------|-------------|
+| `role` | `"bridge"` |
+| `token` | Gateway auth token |
+| `channel` | Channel to subscribe (e.g. `telegram`, `feishu`) |
+| `capabilities` | Array, e.g. `["text","media"]` |
+
+**Client** sends:
+
+| Field | Description |
+|-------|-------------|
+| `role` | `"client"` |
+| `token` | Gateway auth token |
+
+Client does not send channel or channelChatId. Server pushes all `agent` and `user_message` events to all clients; client filters by payload `channel` and `channelChatId`.
+
+**Success response**: `{ "type": "res", "id": "<id>", "ok": true, "payload": { "connId": "<id>", "protocol": 1 } }`
+
+## Sending messages: `message.send`
+
+Both Bridge and Client use this method.
+
+**Params**:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `channel` | yes | e.g. `webchat`, `telegram`, `feishu` |
+| `channelChatId` | yes | Conversation id on that channel (platform-assigned or client-generated for webchat) |
+| `text` | yes | Message body |
+| `senderId` | no | Sender display id |
+| `messageId` | no | Dedup / reference |
+| `attachments` | no | `[{ "type", "url"?, "base64"?, "mime"? }]` |
+
+**Example**:
 
 ```json
 {
   "type": "req",
   "id": "1",
-  "method": "connect",
+  "method": "message.send",
   "params": {
-    "role": "bridge",
-    "token": "your-gateway-token",
-    "channel": "telegram",
-    "capabilities": ["text", "media", "reactions"]
+    "channel": "webchat",
+    "channelChatId": "device-abc",
+    "text": "Hello"
   }
 }
 ```
 
-Response:
-```json
-{
-  "type": "res",
-  "id": "1",
-  "ok": true,
-  "payload": { "connId": "conn_123", "protocol": 1 }
-}
-```
+**Success response**: `{ "type": "res", "id": "1", "ok": true, "payload": { "text": "…", "toolSteps": [] } }`
 
-## Roles
+### channelChatId source
 
-### Bridge Role
-For chat platform adapters (Telegram, Discord, etc.)
+| Channel | Produced by |
+|---------|-------------|
+| Telegram / Feishu / other platforms | **Platform** (e.g. Telegram `chat_id`). Bridge passes it in `message.send`; server returns it in `outbound.message` so Bridge can route the reply. |
+| Web (webchat) | **Client** (e.g. deviceId or UUID in localStorage). |
 
-**Send user messages:**
-```json
-{
-  "type": "req",
-  "id": "2",
-  "method": "inbound.message",
-  "params": {
-    "channel": "telegram",
-    "chatId": "12345",
-    "senderId": "user1",
-    "text": "Hello!",
-    "messageId": "msg_abc"
-  }
-}
-```
+## Events (server push)
 
-**Receive agent replies (event):**
-```json
-{
-  "type": "event",
-  "event": "outbound.message",
-  "seq": 1,
-  "payload": { "chatId": "12345", "text": "Hello! How can I help?" }
-}
-```
+All event payloads include `channel` and `channelChatId` where relevant.
 
-**Receive typing indicators (event):**
-```json
-{
-  "type": "event",
-  "event": "agent",
-  "seq": 2,
-  "payload": { "type": "stream_start", "sessionKey": "default:telegram:12345" }
-}
-```
+| Event | Payload | Recipients |
+|-------|---------|------------|
+| **agent** | `type`, `runId`, `seq`, `channel`, `channelChatId`, plus type-specific fields (`text`, `toolName`, …) | All clients; all bridges for that `channel` |
+| **outbound.message** | `channel`, `channelChatId`, `text` | Bridges for that `channel` only |
+| **user_message** | `channel`, `channelChatId`, `text` | All clients (filter by channel/channelChatId on client) |
 
-### Client Role
-For management UIs (uni-app, Web, CLI)
+## Other methods (client only)
 
-**Send direct messages:**
-```json
-{
-  "type": "req",
-  "id": "3",
-  "method": "chat.send",
-  "params": { "text": "What's the weather?" }
-}
-```
+| Method | Params | Description |
+|--------|--------|-------------|
+| `chat.history` | `channel`, `channelChatId` (required) | Get messages for that conversation |
+| `sessions.list` | none | List all conversations; each item has `channel`, `channelChatId`, `updatedAt`, token counts, etc. |
+| `config.get` | none | Gateway config (sanitized) |
+| `health` | none | Status, bridge/client counts |
 
-**List sessions:**
-```json
-{ "type": "req", "id": "4", "method": "sessions.list" }
-```
-
-**Get health:**
-```json
-{ "type": "req", "id": "5", "method": "health" }
-```
-
-## Available Methods
-
-| Method | Role | Description |
-|--------|------|-------------|
-| `connect` | both | Handshake and authenticate |
-| `inbound.message` | bridge | Push user message to agent |
-| `chat.send` | client | Send message directly to agent |
-| `chat.history` | client | Get conversation history |
-| `sessions.list` | client | List all sessions |
-| `config.get` | client | Get current config (secrets redacted) |
-| `health` | client | Get gateway health status |
-
-## Events
-
-| Event | Recipients | Description |
-|-------|-----------|-------------|
-| `agent` | all | Agent lifecycle events (stream, tool calls, done) |
-| `outbound.message` | bridges | Agent response to send back to user |
-
-## HTTP Endpoints
+## HTTP API
 
 | Endpoint | Description |
 |----------|-------------|
-| `GET /` | Built-in management UI (config, chat test, sessions, health) |
-| `GET /static/*` | Static assets for the UI |
+| `GET /` | Management UI |
+| `GET /static/*` | Static assets |
 | `GET /health` | Health check (JSON) |
+| `GET /api/chat/history?channel=…&channelChatId=…` | Chat history |
+| `POST /api/chat/send` | Body: `{ "channel", "channelChatId", "text", "attachments"? }` |
+| `GET /api/sessions` | Sessions list |
 | `POST /v1/chat/completions` | OpenAI-compatible chat API |
+
+## Internal session key
+
+Server uses `sessionKey = channel + ":" + channelChatId` for storage and locking (no agentId in key; changing agent config does not create a new session).

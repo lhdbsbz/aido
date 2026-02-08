@@ -164,10 +164,13 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 	}
 
 	conn.Role = connectParams.Role
-	conn.Channel = connectParams.Channel
-	conn.Capabilities = connectParams.Capabilities
-	if conn.Role == RoleClient && connectParams.SessionKey != "" {
-		conn.SessionKey = connectParams.SessionKey
+	if conn.Role == RoleBridge {
+		if connectParams.Channel == "" {
+			conn.Send(ResErr(frame.ID, "INVALID_PARAMS", "bridge must provide channel"))
+			return
+		}
+		conn.Channel = connectParams.Channel
+		conn.Capabilities = connectParams.Capabilities
 	}
 	s.Conns.Add(conn)
 	defer s.Conns.Remove(connID)
@@ -193,28 +196,24 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 		}
 
 		ctx := context.Background()
-		if conn.Role == RoleBridge {
-			if frame.Method != "inbound.message" {
-				conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "bridge only supports inbound.message"))
-				continue
-			}
+		switch frame.Method {
+		case "message.send":
 			go func(f Frame) {
-				result, err := s.handleInboundMessage(ctx, conn, f.Params)
+				result, err := s.handleMessageSend(ctx, conn, f.Params)
 				if err != nil {
 					conn.Send(ResErr(f.ID, "ERROR", err.Error()))
 					return
 				}
 				conn.Send(ResOK(f.ID, result))
 			}(frame)
-			continue
-		}
-
-		if conn.Role == RoleClient {
+		case "chat.history", "sessions.list", "health", "config.get":
+			if conn.Role != RoleClient {
+				conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "only client supports chat.history, sessions.list, health, config.get"))
+				continue
+			}
 			var result any
 			var err error
 			switch frame.Method {
-			case "chat.send":
-				result, err = s.handleChatSend(ctx, conn, frame.Params)
 			case "chat.history":
 				result, err = s.handleChatHistory(ctx, conn, frame.Params)
 			case "sessions.list":
@@ -223,19 +222,15 @@ func (s *Server) ginWebSocket(c *gin.Context) {
 				result, err = s.handleHealthMethod(ctx, conn, frame.Params)
 			case "config.get":
 				result, err = s.handleConfigGet(ctx, conn, frame.Params)
-			default:
-				conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "client supports: chat.send, chat.history, sessions.list, health, config.get"))
-				continue
 			}
 			if err != nil {
 				conn.Send(ResErr(frame.ID, "ERROR", err.Error()))
 				continue
 			}
 			conn.Send(ResOK(frame.ID, result))
-			continue
+		default:
+			conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "supported: message.send, chat.history, sessions.list, health, config.get"))
 		}
-
-		conn.Send(ResErr(frame.ID, "UNKNOWN_METHOD", "unknown role"))
 	}
 }
 

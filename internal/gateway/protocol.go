@@ -28,23 +28,24 @@ const (
 )
 
 // ConnectParams is sent by the client during handshake.
+// Bridge: role, token, channel, capabilities.
+// Client: role, token only.
 type ConnectParams struct {
-	Role         string   `json:"role"`         // "bridge" | "client"
-	Token        string   `json:"token"`        // auth token
-	Channel      string   `json:"channel"`      // for bridges: channel name
-	SessionKey   string   `json:"sessionKey,omitempty"`   // for clients: current session (e.g. webchat:default:deviceId)
-	Capabilities []string `json:"capabilities"` // for bridges: supported features
+	Role         string   `json:"role"`                   // "bridge" | "client"
+	Token        string   `json:"token"`                  // auth token
+	Channel      string   `json:"channel,omitempty"`     // bridge only: channel name
+	Capabilities []string `json:"capabilities,omitempty"`  // bridge only
 }
 
-// InboundMessageParams is sent by bridges to push user messages.
-type InboundMessageParams struct {
-	AgentID   string              `json:"agentId,omitempty"`
-	Channel   string              `json:"channel"`
-	ChatID    string              `json:"chatId"`
-	SenderID  string              `json:"senderId"`
-	Text      string              `json:"text"`
-	MessageID string              `json:"messageId,omitempty"`
-	Attach    []AttachmentParam   `json:"attachments,omitempty"`
+// MessageSendParams is used by both Bridge and Client to send a user message.
+// Agent is determined by gateway config; no agentId in protocol.
+type MessageSendParams struct {
+	Channel      string            `json:"channel"`      // e.g. webchat, telegram, feishu
+	ChannelChatID string          `json:"channelChatId"` // conversation id on that channel
+	Text         string            `json:"text"`
+	SenderID     string            `json:"senderId,omitempty"`
+	MessageID    string            `json:"messageId,omitempty"`
+	Attachments  []AttachmentParam `json:"attachments,omitempty"`
 }
 
 type AttachmentParam struct {
@@ -52,14 +53,6 @@ type AttachmentParam struct {
 	URL    string `json:"url,omitempty"`
 	Base64 string `json:"base64,omitempty"`
 	MIME   string `json:"mime,omitempty"`
-}
-
-// ChatSendParams is sent by clients to directly chat with an agent.
-type ChatSendParams struct {
-	AgentID    string            `json:"agentId,omitempty"`
-	Text       string            `json:"text"`
-	SessionKey string            `json:"sessionKey,omitempty"` // optional: resume specific session
-	Attach     []AttachmentParam `json:"attachments,omitempty"`
 }
 
 // Helper to create response frames

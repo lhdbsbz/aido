@@ -70,6 +70,13 @@
           <datalist id="gateway-current-agent-list"></datalist>
           <label>Tools Profile <input type="text" id="configGatewayToolsProfile" data-input-select="gateway-tools-profile-list" autocomplete="off" placeholder="coding"><span class="config-hint-inline">全局工具集档位；可输入或选 minimal/coding/messaging/full</span></label>
           <datalist id="gateway-tools-profile-list"><option value="minimal"><option value="coding"><option value="messaging"><option value="full"></datalist>
+          <label>提示词语言
+            <select id="configGatewayLocale">
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+            </select>
+            <span class="config-hint-inline">系统提示词与摘要使用的语言，默认中文</span>
+          </label>
           <label>认证 Token <input type="text" id="configGatewayToken" placeholder="可选，无则留空表示不校验"></label>
         </div>
       </div>

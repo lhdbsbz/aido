@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/lhdbsbz/aido/internal/config"
+	"github.com/lhdbsbz/aido/internal/prompts"
 	"github.com/lhdbsbz/aido/internal/session"
 	"github.com/lhdbsbz/aido/internal/skills"
 )
@@ -88,8 +89,8 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	}
 	loadedSkills := skills.LoadFromDirs(skillDirs)
 
-	// Derive session key
-	sessionKey := DeriveSessionKey(agentID, msg.Channel, msg.ChatID)
+	// Session key = channel:channelChatId (no agentId; switch agent config does not change session)
+	sessionKey := SessionKeyFromChannelChat(msg.Channel, msg.ChatID)
 
 	// Acquire session lock (prevent concurrent runs on same session)
 	lock := r.getSessionLock(sessionKey)
@@ -99,8 +100,14 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	// Get or create session
 	r.store.GetOrCreate(sessionKey, agentID)
 
-	// Build session manager
+	locale := cfg.Gateway.Locale
+	if locale != "en" {
+		locale = "zh"
+	}
+	p := prompts.Get(locale)
+
 	compactor := session.DefaultCompactor()
+	compactor.SummarizePromptTemplate = p.SummarizePromptTemplate
 	if agentCfg.Compaction.KeepRecentTokens > 0 {
 		compactor.KeepRecentTokens = agentCfg.Compaction.KeepRecentTokens
 	}
@@ -120,6 +127,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	toolDefs := r.loop.Tools.ListToolDefs(r.loop.Policy)
 
 	promptBuilder := &PromptBuilder{
+		Prompts:     p,
 		AgentConfig: &agentCfg,
 		AgentID:     agentID,
 		ToolDefs:    toolDefs,
@@ -179,15 +187,15 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	return result, toolSteps, nil
 }
 
-// DeriveSessionKey creates a deterministic session key.
-func DeriveSessionKey(agentID, channel, chatID string) string {
+// SessionKeyFromChannelChat creates the session key for storage/lock: channel:channelChatId only.
+func SessionKeyFromChannelChat(channel, chatID string) string {
 	if channel == "" {
 		channel = "direct"
 	}
 	if chatID == "" {
 		chatID = "main"
 	}
-	return fmt.Sprintf("%s:%s:%s", agentID, channel, chatID)
+	return channel + ":" + chatID
 }
 
 // Store returns the session store for external access.

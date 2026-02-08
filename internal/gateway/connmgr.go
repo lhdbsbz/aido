@@ -12,10 +12,9 @@ import (
 // Conn represents a single WebSocket connection.
 type Conn struct {
 	ID           string
-	Role         string // "bridge" | "client"
-	Channel      string // for bridges: channel name
-	SessionKey   string // for clients: current session (e.g. webchat:default:deviceId)
-	Capabilities []string
+	Role         string   // "bridge" | "client"
+	Channel      string   // bridge only: channel name
+	Capabilities []string // bridge only
 	WS           *websocket.Conn
 	writeMu      sync.Mutex
 	ConnectedAt  time.Time
@@ -104,26 +103,6 @@ func (m *ConnManager) BroadcastToChannel(channel, event string, payload any) {
 		if conn.Role == RoleBridge && conn.Channel == channel {
 			if err := conn.Send(frame); err != nil {
 				slog.Warn("broadcast to channel failed", "channel", channel, "conn", conn.ID, "error", err)
-			}
-		}
-	}
-}
-
-// BroadcastToSessionKey sends an event to all client connections subscribed to the given sessionKey.
-func (m *ConnManager) BroadcastToSessionKey(sessionKey, event string, payload any) {
-	if sessionKey == "" {
-		return
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	m.seq++
-	frame := EventFrame(event, m.seq, payload)
-
-	for _, conn := range m.conns {
-		if conn.Role == RoleClient && conn.SessionKey == sessionKey {
-			if err := conn.Send(frame); err != nil {
-				slog.Warn("broadcast to session failed", "sessionKey", sessionKey, "conn", conn.ID, "error", err)
 			}
 		}
 	}

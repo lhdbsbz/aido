@@ -5,6 +5,7 @@ gateway:
   port: 19800
   currentAgent: "default"   # 固定使用的 agent，所有请求都用它；留空则可由请求指定
   toolsProfile: "coding"     # 全局工具集档位：minimal | coding | messaging | full
+  locale: "zh"              # 可选：系统提示词语言，仅支持 en（英语）/ zh（中文），默认 zh
   auth:
     token: "${AIDO_TOKEN}"   # set via environment variable
 

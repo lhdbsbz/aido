@@ -1,6 +1,7 @@
 (function () {
   var token = '';
-  var currentSessionKey = getSessionKey();
+  var currentChannel = 'webchat';
+  var currentChannelChatId = getDeviceId();
   var ws = null;
   var pending = {};
   var nextReqId = 1;
@@ -29,6 +30,7 @@
   var configGatewayToken = document.getElementById('configGatewayToken');
   var configGatewayCurrentAgent = document.getElementById('configGatewayCurrentAgent');
   var configGatewayToolsProfile = document.getElementById('configGatewayToolsProfile');
+  var configGatewayLocale = document.getElementById('configGatewayLocale');
   var configAgents = document.getElementById('configAgents');
   var configAgentAdd = document.getElementById('configAgentAdd');
   var configProviders = document.getElementById('configProviders');
@@ -106,20 +108,18 @@
       try {
         payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
       } catch (e) { return; }
-      if (payload.text != null && payload.sessionKey === currentSessionKey) {
+      if (payload.text != null && payload.channel === currentChannel && payload.channelChatId === currentChannelChatId) {
         appendMessage('user', payload.text);
       }
     }
   }
 
-  function eventSessionKeyMatchesCurrent(payloadSessionKey) {
-    if (!currentSessionKey || !payloadSessionKey || currentSessionKey.indexOf('webchat:default:') !== 0) return false;
-    var deviceId = currentSessionKey.slice('webchat:default:'.length);
-    return payloadSessionKey === 'default:webchat:' + deviceId;
+  function eventMatchesCurrentConversation(ev) {
+    return ev && ev.channel === currentChannel && ev.channelChatId === currentChannelChatId;
   }
 
   function handlePassiveAgentEvent(ev) {
-    if (!ev || !eventSessionKeyMatchesCurrent(ev.sessionKey)) return;
+    if (!eventMatchesCurrentConversation(ev)) return;
     if (ev.type === 'stream_start' && !passiveStreamDiv) {
       passiveStreamDiv = document.createElement('div');
       passiveStreamDiv.className = 'msg assistant streaming';
@@ -149,6 +149,7 @@
       chatHistory.scrollTop = chatHistory.scrollHeight;
     } else if (ev.type === 'done' && logEl) {
       appendExecutionLog(logEl, 'status', escapeHtml(EXEC.done));
+      removeExecutionLogIfEmpty(logEl);
       passiveStreamDiv.classList.remove('streaming');
       chatHistory.scrollTop = chatHistory.scrollHeight;
       passiveStreamDiv = null;
@@ -367,9 +368,8 @@
     }
   }
 
-  function getSessionKey() {
-    return 'webchat:default:' + getDeviceId();
-  }
+  function getCurrentChannel() { return currentChannel; }
+  function getCurrentChannelChatId() { return currentChannelChatId; }
 
   function apiCall(path, options) {
     options = options || {};
@@ -405,7 +405,7 @@
         type: 'req',
         id: 'connect',
         method: 'connect',
-        params: { role: 'client', token: token, sessionKey: getSessionKey() }
+        params: { role: 'client', token: token }
       }));
     };
     ws.onmessage = function (ev) {
@@ -416,7 +416,8 @@
       if (msg.type === 'res' && msg.id === 'connect') {
         if (msg.ok === true) {
           reconnectAttempts = 0;
-          currentSessionKey = getSessionKey();
+          currentChannel = 'webchat';
+          currentChannelChatId = getDeviceId();
           setStatus('已连接 (WebSocket)', 'connected');
           connectBtn.textContent = '已连接';
           connectBtn.disabled = true;
@@ -584,10 +585,10 @@
   }
 
   function loadChatHistory() {
-    if (!currentSessionKey) return;
+    if (!currentChannel || !currentChannelChatId) return;
     var p = ws && ws.readyState === 1
-      ? wsRequest('chat.history', { sessionKey: currentSessionKey })
-      : apiCall('/chat/history?sessionKey=' + encodeURIComponent(currentSessionKey));
+      ? wsRequest('chat.history', { channel: currentChannel, channelChatId: currentChannelChatId })
+      : apiCall('/chat/history?channel=' + encodeURIComponent(currentChannel) + '&channelChatId=' + encodeURIComponent(currentChannelChatId));
     p.then(function (res) {
       if (!res || !res.messages) return;
       stopHistoryPolling();
@@ -611,8 +612,8 @@
           return;
         }
         var q = ws && ws.readyState === 1
-          ? wsRequest('chat.history', { sessionKey: currentSessionKey })
-          : apiCall('/chat/history?sessionKey=' + encodeURIComponent(currentSessionKey));
+          ? wsRequest('chat.history', { channel: currentChannel, channelChatId: currentChannelChatId })
+          : apiCall('/chat/history?channel=' + encodeURIComponent(currentChannel) + '&channelChatId=' + encodeURIComponent(currentChannelChatId));
         q.then(function (nextRes) {
           if (!nextRes || !nextRes.messages) return;
           if (getLastMessageRole(nextRes.messages) === 'assistant') {
@@ -750,13 +751,14 @@
           chatHistory.scrollTop = chatHistory.scrollHeight;
         } else if (ev.type === 'done' && logEl) {
           appendExecutionLog(logEl, 'status', escapeHtml(EXEC.done));
+          removeExecutionLogIfEmpty(logEl);
           chatHistory.scrollTop = chatHistory.scrollHeight;
         } else if (ev.type === 'error' && ev.error && logEl) {
           appendExecutionLog(logEl, 'error', EXEC.error + escapeHtml(ev.error));
           chatHistory.scrollTop = chatHistory.scrollHeight;
         }
       };
-      wsRequest('chat.send', { text: text, sessionKey: currentSessionKey }, 120000).then(function (res) {
+      wsRequest('message.send', { channel: currentChannel, channelChatId: currentChannelChatId, text: text }, 120000).then(function (res) {
         agentEventCallback = null;
         if (streamDiv) {
           streamDiv.classList.remove('streaming');
@@ -790,6 +792,7 @@
 
   function buildExecutionLogFromSteps(toolSteps) {
     var steps = toolSteps || [];
+    if (steps.length === 0) return '';
     var lines = [];
     lines.push('<div class="execution-log-line execution-log-status">' + escapeHtml(EXEC.start) + '</div>');
     steps.forEach(function (step) {
@@ -802,6 +805,12 @@
     });
     lines.push('<div class="execution-log-line execution-log-status">' + escapeHtml(EXEC.done) + '</div>');
     return '<details class="execution-log"><summary>执行过程</summary><div class="execution-log-inner">' + lines.join('') + '</div></details>';
+  }
+
+  function removeExecutionLogIfEmpty(logEl) {
+    if (!logEl || logEl.querySelectorAll('.execution-log-tool-start').length > 0) return;
+    var details = logEl.closest('details.execution-log');
+    if (details) details.remove();
   }
 
   chatInput.addEventListener('keydown', function (e) {
@@ -849,8 +858,9 @@
         return;
       }
       sessionsList.innerHTML = res.sessions.map(function (s) {
-        return '<div class="session-item"><span class="session-key">' + escapeHtml(s.sessionKey) + '</span><div class="session-meta">' +
-          'Agent: ' + escapeHtml(s.agentId || '') + ' | 更新: ' + (s.updatedAt || '') + '</div></div>';
+        var label = (s.channel || '') + ':' + (s.channelChatId || '');
+        return '<div class="session-item"><span class="session-key">' + escapeHtml(label) + '</span><div class="session-meta">' +
+          '更新: ' + (s.updatedAt || '') + '</div></div>';
       }).join('') || '<div class="session-item">暂无会话</div>';
     });
   }
@@ -886,6 +896,10 @@
       if (configGatewayToolsProfile) {
         var gp = (res.gateway.toolsProfile || 'coding').toLowerCase();
         configGatewayToolsProfile.value = ['minimal', 'coding', 'messaging', 'full'].indexOf(gp) >= 0 ? gp : 'coding';
+      }
+      if (configGatewayLocale) {
+        var loc = (res.gateway.locale || 'zh').toLowerCase();
+        configGatewayLocale.value = (loc === 'en' ? 'en' : 'zh');
       }
     }
     var gatewayAgentList = document.getElementById('gateway-current-agent-list');
@@ -952,6 +966,7 @@
         port: parseInt(configGatewayPort.value, 10) || 19800,
         currentAgent: (configGatewayCurrentAgent && configGatewayCurrentAgent.value) ? configGatewayCurrentAgent.value.trim() : '',
         toolsProfile: (configGatewayToolsProfile && configGatewayToolsProfile.value) ? configGatewayToolsProfile.value.trim() : 'coding',
+        locale: (configGatewayLocale && configGatewayLocale.value) ? configGatewayLocale.value : 'zh',
         auth: {
           token: configGatewayToken.value.trim()
         }
