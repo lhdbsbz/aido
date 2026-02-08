@@ -76,12 +76,11 @@ export AIDO_TOKEN="your-token"
 
 # 启动服务
 ./aido serve
-
-# 或指定配置文件
-./aido serve --config /path/to/config.yaml
 ```
 
 访问 http://localhost:19800 进入 Web UI。
+
+> ⚠️ **注意**：当前版本仅支持通过配置文件设置端口，CLI 不支持 `--port` 和 `--config` 参数。
 
 ## 📖 使用指南
 
@@ -99,22 +98,62 @@ export AIDO_TOKEN="your-token"
 ws://localhost:19800/ws
 ```
 
-发送消息：
+**连接认证：**
 ```json
 {
-  "type": "message",
-  "content": "帮我写一个 Go 程序",
-  "agent": "default"
+  "type": "req",
+  "id": "connect-1",
+  "method": "connect",
+  "params": {
+    "role": "client",  // 或 "bridge"
+    "token": "<your-token>"
+  }
 }
 ```
 
+**发送消息：**
+```json
+{
+  "type": "req",
+  "id": "msg-1",
+  "method": "message.send",
+  "params": {
+    "channel": "webchat",
+    "channelChatId": "device-abc",
+    "text": "帮我写一个 Go 程序"
+  }
+}
+```
+
+**支持的 WebSocket 方法：**
+- `connect` - 建立连接（Client 或 Bridge 角色）
+- `message.send` - 发送消息
+- `chat.history` - 获取对话历史
+- `sessions.list` - 获取会话列表
+- `health` - 健康检查
+- `config.get` - 获取配置
+
+**服务端推送事件：**
+- `user_message` - 用户消息已接收
+- `agent` - Agent 运行过程（流式输出、工具调用等）
+- `outbound.message` - 最终回复（仅 Bridge 收到）
+
 #### REST API
 
-- `GET /health` - 健康检查
-- `GET /config` - 获取配置
-- `POST /chat/send` - 发送消息
-- `GET /sessions` - 会话管理
-- `GET /bridges` - 桥接器状态
+**无需认证：**
+- `GET /health` - 健康检查（返回状态、连接数等）
+
+**需要认证（Header `Authorization: Bearer <token>`）：**
+- `GET /api/health` - 认证版健康检查
+- `GET /api/config` - 获取配置（脱敏）
+- `PUT /api/config` - 更新配置
+- `GET /api/bridges` - 查询桥接器状态
+- `POST /api/chat/send` - 发送消息（无状态模式）
+- `GET /api/chat/history` - 获取对话历史
+- `GET /api/sessions` - 获取会话列表
+
+**OpenAI 兼容接口：**
+- `POST /v1/chat/completions` - OpenAI 兼容的 Chat API，支持流式和非流式
 
 ### MCP 工具集成
 
@@ -135,7 +174,7 @@ tools:
 
 ```
 aido/
-├── api/                 # API 定义
+├── api/                 # API 接入指南文档
 ├── bridges/            # 平台桥接器
 │   ├── feishu/        # 飞书桥接器示例
 │   ├── SPEC.md        # 桥接器开发规范
@@ -143,21 +182,20 @@ aido/
 ├── cmd/
 │   └── aido/          # CLI 入口
 ├── internal/
-│   ├── agent/         # Agent 逻辑
-│   ├── bridge/        # 桥接器管理
-│   ├── config/        # 配置管理
+│   ├── agent/         # Agent 逻辑核心
+│   ├── bridge/        # 桥接器生命周期管理
+│   ├── config/        # 配置加载和管理
 │   ├── gateway/       # HTTP/WebSocket 网关
-│   ├── llm/           # LLM 客户端
-│   ├── mcp/           # MCP 协议支持
-│   ├── memory/        # 记忆管理
-│   ├── message/       # 消息处理
-│   ├── prompts/       # 提示词模板
-│   ├── session/       # 会话管理
+│   ├── llm/           # LLM 客户端（OpenAI/Anthropic 兼容）
+│   ├── mcp/           # MCP 协议客户端
+│   ├── session/       # 会话存储管理
 │   ├── skills/        # 技能系统
-│   ├── tool/          # 工具注册
-│   └── workspace/    # 工作空间
+│   ├── tool/          # 工具注册和策略控制
+│   └── ...
 └── go.mod
 ```
+
+> **说明**：`memory/`、`message/`、`prompts/` 等为内部辅助模块，详细设计见源码注释。
 
 ## 🎯 配置文件详解
 
@@ -244,11 +282,9 @@ tools:
 Usage:
   aido serve     启动网关服务
   aido version   显示版本信息
-
-Options:
-  --config PATH  指定配置文件路径
-  --port PORT    指定端口（覆盖配置文件）
 ```
+
+> ⚠️ 当前版本仅支持通过配置文件设置端口（`gateway.port`）。
 
 ## 🤝 贡献
 
