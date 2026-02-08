@@ -231,12 +231,46 @@ agents:
   default:
     provider: "anthropic"   # 使用的 LLM 提供商
     model: "claude-sonnet-4-20250514"
-    fallbacks:             # 备用模型
-      - "openai/gpt-4o"
-    workspace: "./workspace"
-    skills:
-      dirs: ["./workspace/skills"]
 ```
+
+工作目录与技能目录固定为 `~/.aido/workspace` 与 `~/.aido/workspace/skills`（可通过 `AIDO_HOME` 修改根目录），无需在配置里指定。
+
+**目录规范（均基于 Home = `~/.aido`）：**
+
+- **Workspace**：默认工作区，代码、MEMORY.md、memory/*.md 等。
+- **Temp**（`~/.aido/tmp`）：仅放任务产生的临时文件，可被定期清理；勿放重要数据。
+- **Store**（`~/.aido/data/store`）：密钥、重要配置等需长期保存的文件；勿与工作区或 Temp 混用。
+- 技能、工具、MCP 均在此 Home 下；模型被要求只使用上述目录，临时用 Temp、重要用 Store。
+
+### 技能目录 (Skills)
+
+技能从固定目录加载：**`~/.aido/workspace/skills`**（即 `{AIDO_HOME}/workspace/skills`）。目录结构必须为「一个技能一个子目录，子目录内放 `SKILL.md`」：
+
+```
+~/.aido/workspace/skills/
+├── feishu-wiki/
+│   └── SKILL.md
+├── feishu-doc/
+│   └── SKILL.md
+└── my-skill/
+    └── SKILL.md
+```
+
+- **错误**：在 `skills/` 下直接放 `SKILL.md`（没有以技能名为名的子目录）不会被识别。
+- **正确**：`skills/<技能名>/SKILL.md`，技能名即子目录名。
+
+`SKILL.md` 建议使用 YAML frontmatter，其中 `description` 会出现在系统提示里供模型选择技能：
+
+```markdown
+---
+description: "在需要查阅/搜索飞书知识库时使用本技能"
+---
+
+# 飞书知识库技能
+...
+```
+
+启动时或通过 Web 配置页触发重载时会扫描该目录；模型通过 `read_file` 按 `<location>`（相对工作目录，如 `skills/feishu-wiki/SKILL.md`）读取技能内容。
 
 ### Bridges（桥接器）
 

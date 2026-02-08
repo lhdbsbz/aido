@@ -46,6 +46,9 @@ func (b *PromptBuilder) writeIdentity(sb *strings.Builder) {
 	sb.WriteString(b.Prompts.IdentityLine1)
 	sb.WriteString(b.Prompts.IdentityLine2)
 	sb.WriteString(b.Prompts.IdentityLine3)
+	if b.Prompts.IdentityEnvLine != "" {
+		sb.WriteString(b.Prompts.IdentityEnvLine)
+	}
 }
 
 func (b *PromptBuilder) writeTooling(sb *strings.Builder) {
@@ -58,6 +61,9 @@ func (b *PromptBuilder) writeTooling(sb *strings.Builder) {
 		fmt.Fprintf(sb, "- **%s**: %s\n", t.Name, t.Description)
 	}
 	sb.WriteString(b.Prompts.ToolsHint)
+	if b.Prompts.ToolsEnvHint != "" {
+		sb.WriteString(b.Prompts.ToolsEnvHint)
+	}
 	sb.WriteString(b.Prompts.ToolsChainHint)
 }
 
@@ -68,8 +74,14 @@ func (b *PromptBuilder) writeSkills(sb *strings.Builder) {
 	sb.WriteString(b.Prompts.SectionSkillsTitle)
 	sb.WriteString("<available_skills>\n")
 	for _, s := range b.Skills {
+		location := s.Path
+		if b.Workspace != "" {
+			if rel, err := filepath.Rel(b.Workspace, s.Path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				location = filepath.ToSlash(rel)
+			}
+		}
 		fmt.Fprintf(sb, "  <skill>\n    <name>%s</name>\n    <description>%s</description>\n    <location>%s</location>\n  </skill>\n",
-			s.Name, s.Description, s.Path)
+			s.Name, s.Description, location)
 	}
 	sb.WriteString("</available_skills>\n\n")
 	sb.WriteString(b.Prompts.SkillRelevantHint)
@@ -83,6 +95,9 @@ func (b *PromptBuilder) writeWorkspaceContext(sb *strings.Builder) {
 
 	sb.WriteString(b.Prompts.SectionWorkspaceTitle)
 	fmt.Fprintf(sb, b.Prompts.WorkingDirLabel, b.Workspace)
+	if b.Prompts.WorkingDirNote != "" {
+		sb.WriteString(b.Prompts.WorkingDirNote)
+	}
 
 	for _, bf := range b.Prompts.BootstrapFiles {
 		path := filepath.Join(b.Workspace, bf.Name)
@@ -114,12 +129,22 @@ func (b *PromptBuilder) writeRuntime(sb *strings.Builder) {
 	fmt.Fprintf(sb, "- Model: %s\n", modelDisplay)
 	fmt.Fprintf(sb, "- OS: %s/%s\n", runtime.GOOS, runtime.GOARCH)
 	fmt.Fprintf(sb, "- Time: %s\n", time.Now().Format("2006-01-02 15:04:05 MST"))
+	home := config.Home()
+	fmt.Fprintf(sb, "- Home: %s\n", home)
 	if b.Workspace != "" {
 		fmt.Fprintf(sb, "- Workspace: %s\n", b.Workspace)
+	}
+	fmt.Fprintf(sb, "- Temp: %s\n", config.TempDir())
+	fmt.Fprintf(sb, "- Store: %s\n", config.StoreDir())
+	if b.Prompts.DirLayoutRules != "" {
+		sb.WriteString(b.Prompts.DirLayoutRules)
 	}
 	if path := config.Path(); path != "" {
 		fmt.Fprintf(sb, "- Config file: %s\n", path)
 		sb.WriteString(b.Prompts.ConfigFileHint)
+		if b.Prompts.ConfigTroubleshootHint != "" {
+			sb.WriteString(b.Prompts.ConfigTroubleshootHint)
+		}
 	}
 	sb.WriteString("\n")
 }

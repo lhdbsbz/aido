@@ -10,11 +10,13 @@ type BootstrapFile struct {
 // Prompts holds all user-facing prompt strings for a locale.
 type Prompts struct {
 	AuthorAndRepo string // author and GitHub repo URL
-	IdentityLine1 string
-	IdentityLine2 string
-	IdentityLine3 string
+	IdentityLine1    string
+	IdentityLine2    string
+	IdentityLine3    string
+	IdentityEnvLine  string // optional: "You run inside Aido: ..."
 
 	SectionToolsTitle string
+	ToolsEnvHint      string // optional: tools executed by Aido, call by name
 	ToolsIntro        string
 	ToolsHint         string
 	ToolsChainHint    string
@@ -25,11 +27,14 @@ type Prompts struct {
 
 	SectionWorkspaceTitle string
 	WorkingDirLabel       string
+	WorkingDirNote        string // optional: workspace scope, skills from fixed dir
 
 	BootstrapFiles []BootstrapFile
 
-	SectionRuntimeTitle string
-	ConfigFileHint      string
+	SectionRuntimeTitle    string
+	DirLayoutRules         string // directory discipline: home, temp, store; empty = omit
+	ConfigFileHint         string
+	ConfigTroubleshootHint string // optional: when in doubt, read config or ask user
 	TruncateBootstrapFmt string
 
 	SummarizePromptTemplate string

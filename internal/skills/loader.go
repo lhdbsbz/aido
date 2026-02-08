@@ -15,8 +15,8 @@ type SkillEntry struct {
 }
 
 // LoadFromDirs scans directories for skill folders (each containing SKILL.md).
-// Returns skill entries with name, description, and path.
-// Compatible with OpenClaw's skill format.
+// Expected layout: <dir>/<skill-name>/SKILL.md; a SKILL.md placed directly under dir is ignored.
+// Returns skill entries with name, description, and path. See README "技能目录 (Skills)" for details.
 func LoadFromDirs(dirs []string) []SkillEntry {
 	var list []SkillEntry
 	seen := make(map[string]bool)

@@ -38,9 +38,12 @@ func serve() error {
 	slog.Info("Aido starting", "version", version, "home", home)
 
 	for _, dir := range []string{
+		config.Workspace(),
 		config.SessionDir(),
 		config.CronDir(),
 		config.LogsDir(),
+		config.TempDir(),
+		config.StoreDir(),
 		config.SkillsDir(),
 	} {
 		os.MkdirAll(dir, 0755)

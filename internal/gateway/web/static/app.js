@@ -100,6 +100,7 @@
       try {
         payload = typeof msg.payload === 'string' ? JSON.parse(msg.payload) : msg.payload;
       } catch (e) { return; }
+      if (!eventMatchesCurrentConversation(payload)) return;
       if (agentEventCallback) {
         agentEventCallback(payload);
       } else {
