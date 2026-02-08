@@ -45,6 +45,7 @@ func (l *Loop) SetPolicy(p *tool.Policy) {
 // Attachments are converted to LLM content in one place: image -> image blocks; others noted in text.
 type RunParams struct {
 	SessionMgr   *session.Manager
+	AgentID      string             // resolved agent id (e.g. "default")
 	AgentConfig  *config.AgentConfig
 	SystemPrompt string
 	UserMessage  string
@@ -69,6 +70,14 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 
 	runID := fmt.Sprintf("run_%d", time.Now().UnixMilli())
 	emitter := NewEventEmitter(runID, params.SessionMgr.SessionKey(), params.EventSink)
+
+	workspace := config.Workspace()
+	ctx = tool.WithRunInfo(ctx, tool.RunInfo{
+		SessionKey: params.SessionMgr.SessionKey(),
+		AgentID:    params.AgentID,
+		Model:      params.AgentConfig.Model,
+		Workspace:  workspace,
+	})
 
 	// Load conversation history
 	messages, err := params.SessionMgr.LoadTranscript()
@@ -140,11 +149,10 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 			e.Text = fmt.Sprintf("iteration %d", i+1)
 		})
 
-		// Call LLM with fallback
 		llmParams := baseLLMParams
 		llmParams.Messages = messages
 
-		result, err := l.callWithFallback(ctx, llmParams, params.AgentConfig, emitter)
+		result, err := l.callLLM(ctx, llmParams, params.AgentConfig, emitter)
 		if err != nil {
 			// Check for context overflow → try compaction
 			var apiErr *llm.APIError
@@ -239,51 +247,28 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 	return "", ErrMaxIterations
 }
 
-// callWithFallback tries the primary model, then fallbacks on FailoverError.
-func (l *Loop) callWithFallback(ctx context.Context, params llm.ChatParams, agentCfg *config.AgentConfig, emitter *EventEmitter) (*llm.StreamResult, error) {
-	candidates := []string{agentCfg.Model}
-	candidates = append(candidates, agentCfg.Fallbacks...)
+func (l *Loop) callLLM(ctx context.Context, params llm.ChatParams, agentCfg *config.AgentConfig, emitter *EventEmitter) (*llm.StreamResult, error) {
 	defaultProvider := agentCfg.Provider
 	if defaultProvider == "" && strings.Contains(agentCfg.Model, "/") {
 		if p, _, _, e := config.ResolveProvider(config.Get(), agentCfg.Model); e == nil {
 			defaultProvider = p
 		}
 	}
-
-	var lastErr error
-	for _, modelRef := range candidates {
-		provider, model, provCfg, err := config.ResolveProviderWithDefault(config.Get(), modelRef, defaultProvider)
-		if err != nil {
-			lastErr = err
-			continue
-		}
-
-		p := params
-		p.Provider = provider
-		p.Model = model
-		p.APIKey = provCfg.APIKey
-		p.BaseURL = provCfg.BaseURL
-
-		client := l.resolveClient(provider)
-		stream, err := client.Chat(ctx, p)
-		if err != nil {
-			var apiErr *llm.APIError
-			if errors.As(err, &apiErr) && (apiErr.IsRateLimit() || apiErr.IsAuth()) {
-				slog.Warn("model failover", "model", modelRef, "error", err)
-				lastErr = err
-				continue
-			}
-			return nil, err
-		}
-
-		result, err := l.consumeWithEvents(ctx, stream, emitter)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
+	provider, model, provCfg, err := config.ResolveProviderWithDefault(config.Get(), agentCfg.Model, defaultProvider)
+	if err != nil {
+		return nil, err
 	}
-
-	return nil, fmt.Errorf("all models failed, last error: %w", lastErr)
+	p := params
+	p.Provider = provider
+	p.Model = model
+	p.APIKey = provCfg.APIKey
+	p.BaseURL = provCfg.BaseURL
+	client := l.resolveClient(provider)
+	stream, err := client.Chat(ctx, p)
+	if err != nil {
+		return nil, err
+	}
+	return l.consumeWithEvents(ctx, stream, emitter)
 }
 
 // consumeWithEvents reads the stream and emits text_delta events in real time.

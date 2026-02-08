@@ -24,46 +24,24 @@ import (
 const version = "0.1.0"
 
 func main() {
-	if len(os.Args) < 2 {
-		printUsage()
-		os.Exit(0)
-	}
-
-	switch os.Args[1] {
-	case "version":
-		fmt.Printf("aido v%s\n", version)
-	case "serve":
-		if err := serve(); err != nil {
-			slog.Error("fatal", "error", err)
-			os.Exit(1)
-		}
-	default:
-		fmt.Fprintf(os.Stderr, "Unknown command: %s\n", os.Args[1])
+	if err := serve(); err != nil {
+		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
-}
-
-func printUsage() {
-	fmt.Println("Aido - AI Agent Gateway")
-	fmt.Println()
-	fmt.Println("Usage:")
-	fmt.Println("  aido serve     Start the gateway server")
-	fmt.Println("  aido version   Show version info")
 }
 
 func serve() error {
 	// Setup structured logging
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})))
 
-	// Resolve AIDO_HOME
 	home := config.ResolveHome()
 	slog.Info("Aido starting", "version", version, "home", home)
 
-	// Ensure directories
 	for _, dir := range []string{
-		filepath.Join(home, "data", "sessions"),
-		filepath.Join(home, "logs"),
-		filepath.Join(home, "workspace", "skills"),
+		config.SessionDir(),
+		config.CronDir(),
+		config.LogsDir(),
+		config.SkillsDir(),
 	} {
 		os.MkdirAll(dir, 0755)
 	}
@@ -91,27 +69,21 @@ func serve() error {
 	}
 	config.Set(cfg)
 
-	// Initialize session store
-	sessionDir := filepath.Join(home, "data", "sessions")
-	store := session.NewStore(sessionDir)
+	store := session.NewStore(config.SessionDir())
 	if err := store.Load(); err != nil {
 		slog.Warn("failed to load session store", "error", err)
 	}
 
-	// Initialize tool registry
-	defaultWorkspace := filepath.Join(home, "workspace")
-	if agentCfg, ok := cfg.Agents["default"]; ok && agentCfg.Workspace != "" {
-		defaultWorkspace = agentCfg.Workspace
-	}
-
-	// 注册内置工具
 	registry := tool.NewRegistry()
-	tool.RegisterFSTools(registry, defaultWorkspace)
-	tool.RegisterExecTools(registry, defaultWorkspace)
+	tool.RegisterFSTools(registry, config.Workspace())
+	tool.RegisterExecTools(registry, config.Workspace())
 	tool.RegisterWebTools(registry)
+	tool.RegisterSessionTools(registry)
+	tool.RegisterMemoryTools(registry, config.Workspace())
+	tool.RegisterCronTools(registry, config.CronJobsPath())
 
 	mcpClient := mcp.NewClient()
-	reloadMCP(context.Background(), cfg, mcpClient, registry, home)
+	reloadMCP(context.Background(), cfg, mcpClient, registry, config.ResolveHome())
 
 	// Build global policy from gateway.toolsProfile
 	profile := cfg.Gateway.ToolsProfile
@@ -134,17 +106,12 @@ func serve() error {
 		Config:    cfg,
 	}
 
-	// Initialize router
 	router := agent.NewRouter(loop, store)
-	reloadSkills(cfg, router, defaultWorkspace)
+	reloadSkills(cfg, router)
 
 	config.RegisterOnReload(func(cfg *config.Config) {
-		reloadMCP(context.Background(), cfg, mcpClient, registry, home)
-		dw := filepath.Join(home, "workspace")
-		if agentCfg, ok := cfg.Agents["default"]; ok && agentCfg.Workspace != "" {
-			dw = agentCfg.Workspace
-		}
-		reloadSkills(cfg, router, dw)
+		reloadMCP(context.Background(), cfg, mcpClient, registry, config.ResolveHome())
+		reloadSkills(cfg, router)
 		profile := cfg.Gateway.ToolsProfile
 		if profile == "" {
 			profile = "coding"
@@ -181,7 +148,6 @@ func serve() error {
 		reloadBridges(ctx, cfg, bridgeMgr)
 	})
 
-	configDir := filepath.Dir(config.Path())
 	bridgeCount := 0
 	for _, inst := range cfg.Bridges.Instances {
 		if !inst.Enabled || inst.Path == "" {
@@ -190,7 +156,7 @@ func serve() error {
 		}
 		bridgeDir := inst.Path
 		if !filepath.IsAbs(bridgeDir) {
-			bridgeDir = filepath.Join(configDir, bridgeDir)
+			bridgeDir = filepath.Join(home, bridgeDir)
 		}
 		slog.Info("bridge starting", "id", inst.ID, "dir", bridgeDir)
 		if bridgeMgr.Start(ctx, bridgeDir, inst.ID, inst.Enabled, inst.Env) {
@@ -254,7 +220,6 @@ func reloadBridges(ctx context.Context, cfg *config.Config, bridgeMgr *bridge.Ma
 	}
 	bridgeMgr.SetGateway(fmt.Sprintf("ws://127.0.0.1:%d/ws", port), cfg.Gateway.Auth.Token)
 
-	configDir := filepath.Dir(config.Path())
 	enabledIDs := make(map[string]bool)
 	for _, inst := range cfg.Bridges.Instances {
 		if inst.Enabled && inst.Path != "" {
@@ -270,13 +235,14 @@ func reloadBridges(ctx context.Context, cfg *config.Config, bridgeMgr *bridge.Ma
 		}
 	}
 	started := 0
+	home := config.ResolveHome()
 	for _, inst := range cfg.Bridges.Instances {
 		if !inst.Enabled || inst.Path == "" {
 			continue
 		}
 		bridgeDir := inst.Path
 		if !filepath.IsAbs(bridgeDir) {
-			bridgeDir = filepath.Join(configDir, bridgeDir)
+			bridgeDir = filepath.Join(home, bridgeDir)
 		}
 		bridgeMgr.Stop(inst.ID)
 		slog.Info("bridge starting (config reload)", "id", inst.ID, "dir", bridgeDir)
@@ -289,17 +255,10 @@ func reloadBridges(ctx context.Context, cfg *config.Config, bridgeMgr *bridge.Ma
 	}
 }
 
-func reloadSkills(cfg *config.Config, router *agent.Router, defaultWorkspace string) {
-	for agentID, agentCfg := range cfg.Agents {
-		skillDirs := agentCfg.Skills.Dirs
-		if len(skillDirs) == 0 {
-			ws := agentCfg.Workspace
-			if ws == "" {
-				ws = defaultWorkspace
-			}
-			skillDirs = []string{filepath.Join(ws, "skills")}
-		}
-		loaded := skills.LoadFromDirs(skillDirs)
+func reloadSkills(cfg *config.Config, router *agent.Router) {
+	skillDir := config.SkillsDir()
+	for agentID := range cfg.Agents {
+		loaded := skills.LoadFromDirs([]string{skillDir})
 		router.SetSkills(agentID, loaded)
 		if len(loaded) > 0 {
 			slog.Info("skills loaded", "agent", agentID, "count", len(loaded))

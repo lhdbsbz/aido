@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -83,15 +82,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		return "", nil, fmt.Errorf("agent %q not found", agentID)
 	}
 
-	skillDirs := agentCfg.Skills.Dirs
-	if len(skillDirs) == 0 {
-		ws := agentCfg.Workspace
-		if ws == "" {
-			ws = filepath.Join(config.ResolveHome(), "workspace")
-		}
-		skillDirs = []string{filepath.Join(ws, "skills")}
-	}
-	loadedSkills := skills.LoadFromDirs(skillDirs)
+	loadedSkills := skills.LoadFromDirs([]string{config.SkillsDir()})
 
 	// Session key = channel:channelChatId (no agentId; switch agent config does not change session)
 	sessionKey := SessionKeyFromChannelChat(msg.Channel, msg.ChatID)
@@ -126,9 +117,8 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	_ = sessionDir // transcript path is derived from store
 	mgr := session.NewManager(r.store, compactor, sessionKey, agentID)
 
-	// Build system prompt
-	workspace := agentCfg.Workspace
 	toolDefs := r.loop.Tools.ListToolDefs(r.loop.Policy)
+	workspace := config.Workspace()
 
 	promptBuilder := &PromptBuilder{
 		Prompts:     p,
@@ -146,6 +136,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	var toolSteps []ToolStep
 	result, err := r.loop.Run(ctx, RunParams{
 		SessionMgr:   mgr,
+		AgentID:      agentID,
 		AgentConfig:  &agentCfg,
 		SystemPrompt: systemPrompt,
 		UserMessage:  msg.Text,

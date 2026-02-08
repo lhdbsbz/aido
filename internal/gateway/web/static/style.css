@@ -103,7 +103,14 @@ body {
   min-height: 0;
   overflow: hidden;
 }
-.chat-toolbar { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.chat-toolbar { display: flex; gap: 8px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
+.current-session-label {
+  font-size: 0.85rem; color: #94a3b8; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.chat-toolbar-btn {
+  padding: 4px 10px; font-size: 0.85rem; border: 1px solid #475569; border-radius: 6px; background: #334155; color: #e2e8f0; cursor: pointer;
+}
+.chat-toolbar-btn:hover { background: #475569; }
 .execution-log-switch {
   display: inline-flex;
   align-items: center;
@@ -611,10 +618,31 @@ details.execution-log[open] summary::before { transform: rotate(90deg); }
   padding: 10px 12px;
   border-bottom: 1px solid #333;
   font-size: 0.9rem;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background 0.15s;
 }
+.sessions-list .session-item:hover { background: #333; }
+.sessions-list .session-item.active { background: #1e3a5f; color: #93c5fd; }
 .sessions-list .session-item:last-child { border-bottom: none; }
 .sessions-list .session-key { font-family: monospace; color: #93c5fd; }
+.sessions-list .session-item.active .session-key { color: #bfdbfe; }
 .sessions-list .session-meta { font-size: 0.8rem; color: #666; margin-top: 4px; }
+.sessions-list .session-item.active .session-meta { color: #94a3b8; }
+
+.msg.system-summary { margin: 8px 0; }
+.msg.system-summary .system-summary-details {
+  font-size: 0.85rem; color: #94a3b8; background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px 12px;
+}
+.msg.system-summary .system-summary-details summary { cursor: pointer; user-select: none; }
+.msg.system-summary .system-summary-body {
+  margin-top: 8px; padding-top: 8px; border-top: 1px solid #334155; color: #cbd5e1; white-space: pre-wrap; font-size: 0.9rem;
+}
+.msg.system-summary .system-summary-body p { margin: 0.5em 0; }
+
+.chat-history-empty {
+  color: #64748b; font-size: 0.9rem; text-align: center; padding: 24px;
+}
 
 .health-info {
   background: #252525;

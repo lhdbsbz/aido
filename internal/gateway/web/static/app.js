@@ -22,6 +22,8 @@
   var executionLogSwitch = document.getElementById('executionLogSwitch');
   var refreshSessions = document.getElementById('refreshSessions');
   var sessionsList = document.getElementById('sessionsList');
+  var currentSessionLabel = document.getElementById('currentSessionLabel');
+  var newSessionBtn = document.getElementById('newSessionBtn');
   var refreshConfig = document.getElementById('refreshConfig');
   var saveConfig = document.getElementById('saveConfig');
   var configMessage = document.getElementById('configMessage');
@@ -373,6 +375,39 @@
   function getCurrentChannel() { return currentChannel; }
   function getCurrentChannelChatId() { return currentChannelChatId; }
 
+  function updateCurrentSessionLabel() {
+    if (!currentSessionLabel) return;
+    var label = (currentChannel || '') + ':' + (currentChannelChatId || '');
+    currentSessionLabel.textContent = label ? '当前: ' + label : '—';
+    currentSessionLabel.title = '当前会话 ' + label;
+  }
+
+  function switchToSession(channel, channelChatId) {
+    if (!channel || channelChatId == null) return;
+    currentChannel = channel;
+    currentChannelChatId = String(channelChatId);
+    stopHistoryPolling();
+    agentEventCallback = null;
+    passiveStreamDiv = null;
+    chatHistory.innerHTML = '';
+    updateCurrentSessionLabel();
+    if (document.querySelector('.tab[data-tab="chat"]')) {
+      document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
+      document.querySelectorAll('.panel').forEach(function (p) { p.classList.remove('active'); });
+      var chatTab = document.querySelector('.tab[data-tab="chat"]');
+      if (chatTab) chatTab.classList.add('active');
+      var chatPanel = document.getElementById('panel-chat');
+      if (chatPanel) chatPanel.classList.add('active');
+    }
+    if (token && (ws && ws.readyState === 1)) loadChatHistory();
+    loadSessions();
+  }
+
+  function newSession() {
+    var newId = 'web-' + Math.random().toString(36).slice(2) + '-' + Date.now().toString(36);
+    switchToSession('webchat', newId);
+  }
+
   function apiCall(path, options) {
     options = options || {};
     var h = { 'Content-Type': 'application/json' };
@@ -428,6 +463,7 @@
             localStorage.setItem('aido_token', token);
           } catch (e) {}
           ws.onmessage = onWsMessage;
+          updateCurrentSessionLabel();
           loadChatHistory();
           setTimeout(loadChatHistory, 500);
           loadHealth();
@@ -517,14 +553,37 @@
     return null;
   }
 
+  function appendSystemSummaryBlock(content) {
+    if (!content || !content.trim()) return;
+    var isSummary = content.indexOf('[Previous conversation summary]') === 0 || content.indexOf('此前对话') !== -1;
+    var title = isSummary ? '此前对话已摘要' : '系统说明';
+    var body = isSummary ? content.replace(/^\[Previous conversation summary\]\n?/i, '').trim() : content;
+    var div = document.createElement('div');
+    div.className = 'msg system-summary';
+    div.innerHTML = '<details class="system-summary-details"><summary>' + escapeHtml(title) + '</summary><div class="system-summary-body">' + markdownToHtml(body) + '</div></details>';
+    chatHistory.appendChild(div);
+    chatHistory.scrollTop = chatHistory.scrollHeight;
+  }
+
   function renderChatHistory(list) {
-    if (!list || !list.length) return;
     chatHistory.innerHTML = '';
+    if (!list || !list.length) {
+      var empty = document.createElement('div');
+      empty.className = 'chat-history-empty';
+      empty.textContent = '该会话暂无消息';
+      chatHistory.appendChild(empty);
+      return;
+    }
     var i = 0;
     while (i < list.length) {
       var msg = list[i];
       var role = msg.role;
       var content = typeof msg.content === 'string' ? msg.content : (msg.content && msg.content[0] && msg.content[0].text) ? msg.content[0].text : '';
+      if (role === 'system') {
+        appendSystemSummaryBlock(content);
+        i++;
+        continue;
+      }
       if (role === 'user') {
         appendMessage('user', content);
         i++;
@@ -847,6 +906,7 @@
   }
 
   function loadSessions() {
+    if (!sessionsList) return;
     if (!token) {
       sessionsList.innerHTML = '<div class="session-item">请先连接</div>';
       return;
@@ -860,14 +920,24 @@
         return;
       }
       sessionsList.innerHTML = res.sessions.map(function (s) {
-        var label = (s.channel || '') + ':' + (s.channelChatId || '');
-        return '<div class="session-item"><span class="session-key">' + escapeHtml(label) + '</span><div class="session-meta">' +
-          '更新: ' + (s.updatedAt || '') + '</div></div>';
+        var ch = s.channel || '';
+        var cid = s.channelChatId != null ? String(s.channelChatId) : '';
+        var label = ch + ':' + cid;
+        var isActive = ch === currentChannel && cid === currentChannelChatId;
+        return '<div class="session-item' + (isActive ? ' active' : '') + '" data-channel="' + escapeHtml(ch) + '" data-channel-chat-id="' + escapeHtml(cid) + '" role="button" tabindex="0"><span class="session-key">' + escapeHtml(label) + '</span><div class="session-meta">更新: ' + escapeHtml(s.updatedAt || '') + '</div></div>';
       }).join('') || '<div class="session-item">暂无会话</div>';
+      sessionsList.querySelectorAll('.session-item[data-channel]').forEach(function (el) {
+        var ch = el.getAttribute('data-channel');
+        var cid = el.getAttribute('data-channel-chat-id');
+        function go() { switchToSession(ch, cid); }
+        el.addEventListener('click', go);
+        el.addEventListener('keydown', function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+      });
     });
   }
 
   refreshSessions.addEventListener('click', loadSessions);
+  if (newSessionBtn) newSessionBtn.addEventListener('click', newSession);
 
   function loadHealth() {
     if (!token) {
@@ -1174,6 +1244,7 @@
       if (saved) {
         tokenEl.value = saved;
         token = saved;
+        updateCurrentSessionLabel();
         loadChatHistory();
         connect();
       }

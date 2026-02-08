@@ -7,6 +7,8 @@ const AIDO_TOKEN = process.env.AIDO_TOKEN ?? "";
 const FEISHU_APP_ID = process.env.FEISHU_APP_ID ?? "";
 const FEISHU_APP_SECRET = process.env.FEISHU_APP_SECRET ?? "";
 const FEISHU_DOMAIN = process.env.FEISHU_DOMAIN === "lark" ? "lark" : "feishu";
+const FEISHU_WELCOME_P2P = process.env.FEISHU_WELCOME_P2P ?? "";
+const FEISHU_WELCOME_GROUP = process.env.FEISHU_WELCOME_GROUP ?? "";
 
 function main(): void {
   if (!AIDO_TOKEN) {
@@ -37,6 +39,33 @@ function main(): void {
     } catch (err) {
       console.error("[feishu] send to Aido failed:", err);
     }
+  });
+
+  if (FEISHU_WELCOME_P2P) {
+    feishu.setOnP2PChatEntered(async (chatId) => {
+      console.log("[feishu] user entered P2P chat", chatId);
+      try {
+        await feishu.sendText(chatId, FEISHU_WELCOME_P2P);
+      } catch (err) {
+        console.error("[feishu] welcome P2P failed:", err);
+      }
+    });
+  }
+  if (FEISHU_WELCOME_GROUP) {
+    feishu.setOnBotAddedToGroup(async (chatId) => {
+      console.log("[feishu] bot added to group", chatId);
+      try {
+        await feishu.sendText(chatId, FEISHU_WELCOME_GROUP);
+      } catch (err) {
+        console.error("[feishu] welcome group failed:", err);
+      }
+    });
+  }
+  feishu.setOnBotRemovedFromGroup((chatId) => {
+    console.log("[feishu] bot removed from group", chatId);
+  });
+  feishu.setOnMessageRead(() => {
+    // 消息已读事件，仅记录或后续扩展
   });
 
   aido.onOutboundMessage(async (payload) => {

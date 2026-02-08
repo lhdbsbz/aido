@@ -141,12 +141,12 @@ func (s *Server) ginAPIBridges(c *gin.Context) {
 	}
 	list := []map[string]any{}
 	if s.BridgeManager != nil {
-		configDir := filepath.Dir(config.Path())
+		home := config.ResolveHome()
 		instances := make([]bridge.InstanceConfig, 0, len(cfg.Bridges.Instances))
 		for _, inst := range cfg.Bridges.Instances {
 			path := inst.Path
 			if path != "" && !filepath.IsAbs(path) {
-				path = filepath.Join(configDir, path)
+				path = filepath.Join(home, path)
 			}
 			instances = append(instances, bridge.InstanceConfig{
 				ID:      inst.ID,

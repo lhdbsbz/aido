@@ -32,13 +32,10 @@ type AuthConfig struct {
 }
 
 type AgentConfig struct {
-	Provider   string           `yaml:"provider" json:"provider"`     // 绑定的 provider（providers 的 key）
-	Model      string           `yaml:"model" json:"model"`          // 模型 id（如 claude-sonnet-4-20250514）
-	Fallbacks  []string         `yaml:"fallbacks" json:"fallbacks"`  // 备选，可为 "modelId" 或 "provider/modelId"
+	Provider   string           `yaml:"provider" json:"provider"`   // 绑定的 provider（providers 的 key）
+	Model      string           `yaml:"model" json:"model"`        // 模型 id（如 claude-sonnet-4-20250514）
 	Tools      AgentToolsConfig `yaml:"tools" json:"tools"`
 	Compaction CompactionConfig `yaml:"compaction" json:"compaction"`
-	Workspace  string           `yaml:"workspace" json:"workspace"`
-	Skills     SkillsConfig     `yaml:"skills" json:"skills"`
 }
 
 type AgentToolsConfig struct {
@@ -51,10 +48,6 @@ type CompactionConfig struct {
 	KeepRecentTokens int     `yaml:"keepRecentTokens" json:"keepRecentTokens"`
 	ReserveTokens    int     `yaml:"reserveTokens" json:"reserveTokens"`
 	ChunkRatio       float64 `yaml:"chunkRatio" json:"chunkRatio"`
-}
-
-type SkillsConfig struct {
-	Dirs []string `yaml:"dirs" json:"dirs"`
 }
 
 type ProviderConfig struct {

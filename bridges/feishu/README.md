@@ -14,7 +14,7 @@
 
 - **创建应用**：在 [飞书开放平台](https://open.feishu.cn/app) 创建**企业自建应用**，在「凭证与基础信息」中获取 **App ID**、**App Secret**（对应 `.env` 的 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`）。
 - **权限**：在「权限管理」中申请并启用「接收消息」「发送消息」等所需权限（如 `im:message`、`im:message.group_at_msg` 等，按机器人能力需求勾选）。
-- **事件订阅**：在「事件与回调」中订阅 `im.message.receive_v1`，订阅方式选择 **「使用长连接接收事件」**（无需填回调 URL；保存时本 bridge 需已启动并连上飞书，否则可能无法生效）。
+- **事件订阅**：在「事件与回调」中订阅所需事件，订阅方式选择 **「使用长连接接收事件」**（无需填回调 URL；保存时本 bridge 需已启动并连上飞书，否则可能无法生效）。本 bridge 支持并建议订阅：`im.message.receive_v1`（接收消息）、`im.chat.access_event.bot_p2p_chat_entered_v1`（用户进入私聊）、`im.chat.member.bot.added_v1`（机器人进群）、`im.chat.member.bot.deleted_v1`（机器人被移出群）、`im.message.message_read_v1`（消息已读）。
 
 ## 前置条件（本 bridge）
 
@@ -32,6 +32,8 @@
 | `FEISHU_APP_ID` | 飞书应用 App ID |
 | `FEISHU_APP_SECRET` | 飞书应用 App Secret |
 | `FEISHU_DOMAIN` | 可选，海外 Lark 填 `lark`，国内飞书默认 `feishu` |
+| `FEISHU_WELCOME_P2P` | 可选，用户首次进入与机器人的私聊时发送的欢迎语，不填则不发 |
+| `FEISHU_WELCOME_GROUP` | 可选，机器人被加入群时发送的欢迎语，不填则不发 |
 
 ## 运行
 
@@ -45,7 +47,7 @@ npm run build && npm start
 
 启动后：
 
-1. 使用飞书 SDK 的 **WebSocket 长连接**连到飞书，直接接收 `im.message.receive_v1` 等事件，无需 HTTP 回调。
+1. 使用飞书 SDK 的 **WebSocket 长连接**连到飞书，接收上述 5 类事件（接收消息、用户进私聊、机器人进群/被移出群、消息已读），无需 HTTP 回调。
 2. 连接 Aido WebSocket（`role: bridge`, `channel: feishu`）。
 3. 收到飞书消息 → 调用 Aido `message.send`；收到 Aido `outbound.message` → 用飞书 Open API 发回对应会话。
 

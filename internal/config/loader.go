@@ -121,18 +121,9 @@ func expandEnvVars(content string) string {
 	})
 }
 
+// resolveRelativePaths 预留；目录已统一在 paths.go 下固定，无需从 config 解析。
 func resolveRelativePaths(cfg *Config, baseDir string) {
-	for name, agent := range cfg.Agents {
-		if agent.Workspace != "" && !filepath.IsAbs(agent.Workspace) {
-			agent.Workspace = filepath.Join(baseDir, agent.Workspace)
-		}
-		for i, dir := range agent.Skills.Dirs {
-			if !filepath.IsAbs(dir) {
-				agent.Skills.Dirs[i] = filepath.Join(baseDir, dir)
-			}
-		}
-		cfg.Agents[name] = agent
-	}
+	_, _ = cfg, baseDir
 }
 
 // ResolveHome returns the AIDO_HOME directory.

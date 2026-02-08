@@ -14,6 +14,8 @@ export type OnFeishuMessage = (params: {
   chatType: "p2p" | "group";
 }) => void;
 
+export type OnChatId = (chatId: string) => void;
+
 type FeishuMessageEvent = {
   message?: {
     message_id?: string;
@@ -25,10 +27,16 @@ type FeishuMessageEvent = {
   sender?: { sender_id?: { open_id?: string; user_id?: string } };
 };
 
+type FeishuChatIdEvent = { chat_id?: string; event?: { chat_id?: string } };
+
 export class FeishuHandler {
   private client: Lark.Client;
   private wsClient: Lark.WSClient | null = null;
   private onMessage: OnFeishuMessage | null = null;
+  private onP2PChatEntered: OnChatId | null = null;
+  private onBotAddedToGroup: OnChatId | null = null;
+  private onBotRemovedFromGroup: OnChatId | null = null;
+  private onMessageRead: ((data: unknown) => void) | null = null;
 
   constructor(private config: FeishuConfig) {
     const domain =
@@ -43,6 +51,22 @@ export class FeishuHandler {
 
   setOnMessage(handler: OnFeishuMessage): void {
     this.onMessage = handler;
+  }
+
+  setOnP2PChatEntered(handler: OnChatId | null): void {
+    this.onP2PChatEntered = handler;
+  }
+
+  setOnBotAddedToGroup(handler: OnChatId | null): void {
+    this.onBotAddedToGroup = handler;
+  }
+
+  setOnBotRemovedFromGroup(handler: OnChatId | null): void {
+    this.onBotRemovedFromGroup = handler;
+  }
+
+  setOnMessageRead(handler: ((data: unknown) => void) | null): void {
+    this.onMessageRead = handler;
   }
 
   /**
@@ -89,6 +113,24 @@ export class FeishuHandler {
         if (chatId || messageId) {
           this.onMessage({ chatId, messageId, senderId, text, chatType });
         }
+      },
+      "im.chat.access_event.bot_p2p_chat_entered_v1": async (data: unknown) => {
+        const event = data as FeishuChatIdEvent;
+        const chatId = event.chat_id ?? event.event?.chat_id ?? "";
+        if (chatId && this.onP2PChatEntered) this.onP2PChatEntered(chatId);
+      },
+      "im.chat.member.bot.added_v1": async (data: unknown) => {
+        const event = data as FeishuChatIdEvent;
+        const chatId = event.chat_id ?? event.event?.chat_id ?? "";
+        if (chatId && this.onBotAddedToGroup) this.onBotAddedToGroup(chatId);
+      },
+      "im.chat.member.bot.deleted_v1": async (data: unknown) => {
+        const event = data as FeishuChatIdEvent;
+        const chatId = event.chat_id ?? event.event?.chat_id ?? "";
+        if (chatId && this.onBotRemovedFromGroup) this.onBotRemovedFromGroup(chatId);
+      },
+      "im.message.message_read_v1": async (data: unknown) => {
+        if (this.onMessageRead) this.onMessageRead(data);
       },
     });
 

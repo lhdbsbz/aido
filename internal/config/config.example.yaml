@@ -1,5 +1,6 @@
 # Aido Configuration
-# Place this file at ~/.aido/config.yaml
+# 配置文件放在 ~/.aido/config.yaml（或 AIDO_HOME/config.yaml）
+# 工作区、技能、会话、cron、日志等目录均固定在 home 下（~/.aido 或 AIDO_HOME），不可配置，便于迁移与备份。
 
 gateway:
   port: 19800
@@ -27,19 +28,15 @@ providers:
     type: "anthropic"
 
 # Agent Definitions（每个 agent 绑定一个 provider；可自行增加 agent）
+# 工作区固定为 ~/.aido/workspace，技能目录固定为 ~/.aido/workspace/skills，无需配置。
 agents:
   default:
     provider: "anthropic"
     model: "claude-sonnet-4-20250514"
-    fallbacks:
-      - "openai/gpt-4o"
-    workspace: "./workspace"
     compaction:
       contextWindow: 200000   # 该模型上下文上限（token），按厂商文档填写，避免超限后再压缩
       keepRecentTokens: 20000
       reserveTokens: 16384
-    skills:
-      dirs: ["./workspace/skills"]
 
 # MCP Tool Servers (stdio: command+args; http: url + optional env as request headers)
 tools:
@@ -58,13 +55,13 @@ tools:
   #   env:
   #     Authorization: "Bearer ${MCP_TOKEN}"
 
-# Bridges: 各平台桥接器，随 Aido 启动自动拉起。path 相对配置文件所在目录或填绝对路径。
+# Bridges: 各平台桥接器，随 Aido 启动自动拉起。path 相对 home（~/.aido）或填绝对路径。
 # 见 bridges/SPEC.md；AIDO_WS_URL、AIDO_TOKEN 由主程序自动注入。
 bridges:
   instances: []
   # - id: feishu
   #   enabled: true
-  #   path: "bridges/feishu"
+  #   path: "bridges/feishu"   # 即 ~/.aido/bridges/feishu
   #   env:
   #     FEISHU_APP_ID: "xxx"
   #     FEISHU_APP_SECRET: "xxx"
