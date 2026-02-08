@@ -3,9 +3,11 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/lhdbsbz/aido/internal/bridge"
 	"github.com/lhdbsbz/aido/internal/config"
 )
 
@@ -33,6 +35,7 @@ func (s *Server) registerAPIRoutes(engine *gin.Engine) {
 	api.GET("/sessions", s.ginAPISessions)
 	api.GET("/chat/history", s.ginAPIChatHistory)
 	api.POST("/chat/send", s.ginAPIChatSend)
+	api.GET("/bridges", s.ginAPIBridges)
 }
 
 func (s *Server) ginAPIHealth(c *gin.Context) {
@@ -128,6 +131,42 @@ func (s *Server) ginAPIChatSend(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, result)
+}
+
+func (s *Server) ginAPIBridges(c *gin.Context) {
+	cfg, err := config.Load(config.Path())
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "read config: " + err.Error()})
+		return
+	}
+	list := []map[string]any{}
+	if s.BridgeManager != nil {
+		configDir := filepath.Dir(config.Path())
+		instances := make([]bridge.InstanceConfig, 0, len(cfg.Bridges.Instances))
+		for _, inst := range cfg.Bridges.Instances {
+			path := inst.Path
+			if path != "" && !filepath.IsAbs(path) {
+				path = filepath.Join(configDir, path)
+			}
+			instances = append(instances, bridge.InstanceConfig{
+				ID:      inst.ID,
+				Enabled: inst.Enabled,
+				Path:    path,
+			})
+		}
+		for _, st := range s.BridgeManager.List(instances) {
+			list = append(list, map[string]any{
+				"id":        st.ID,
+				"name":      st.Name,
+				"enabled":   st.Enabled,
+				"path":      st.Path,
+				"running":   st.Running,
+				"pid":       st.PID,
+				"startedAt": st.StartedAt,
+			})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"bridges": list})
 }
 
 func mustMarshal(v any) []byte {

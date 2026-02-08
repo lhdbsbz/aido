@@ -57,3 +57,14 @@ tools:
   #   url: "http://localhost:8080/sse"
   #   env:
   #     Authorization: "Bearer ${MCP_TOKEN}"
+
+# Bridges: 各平台桥接器，随 Aido 启动自动拉起。path 相对配置文件所在目录或填绝对路径。
+# 见 bridges/SPEC.md；AIDO_WS_URL、AIDO_TOKEN 由主程序自动注入。
+bridges:
+  instances: []
+  # - id: feishu
+  #   enabled: true
+  #   path: "bridges/feishu"
+  #   env:
+  #     FEISHU_APP_ID: "xxx"
+  #     FEISHU_APP_SECRET: "xxx"

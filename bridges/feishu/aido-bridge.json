@@ -1,0 +1,20 @@
+{
+  "id": "feishu",
+  "name": "飞书 / Lark",
+  "description": "将飞书/Lark 消息对接到 Aido，使用长连接接收事件，无需配置回调地址。",
+  "runtime": "node",
+  "commands": [
+    ["npm", "install"],
+    ["npm", "run", "build"],
+    ["npm", "run", "start"]
+  ],
+  "cwd": ".",
+  "envFile": ".env",
+  "envSchema": [
+    {"key": "AIDO_WS_URL", "description": "Aido WebSocket 地址（主程序自动注入）", "required": false},
+    {"key": "AIDO_TOKEN", "description": "网关 Token（主程序自动注入）", "required": false},
+    {"key": "FEISHU_APP_ID", "description": "飞书应用 App ID", "required": true},
+    {"key": "FEISHU_APP_SECRET", "description": "飞书应用 App Secret", "required": true},
+    {"key": "FEISHU_DOMAIN", "description": "可选：lark | feishu", "required": false}
+  ]
+}

@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/lhdbsbz/aido/internal/agent"
+	"github.com/lhdbsbz/aido/internal/bridge"
 	"github.com/lhdbsbz/aido/internal/config"
 	"github.com/lhdbsbz/aido/internal/gateway"
 	"github.com/lhdbsbz/aido/internal/llm"
@@ -168,7 +169,39 @@ func serve() error {
 		cancel()
 	}()
 
-	srv := gateway.NewServer(router)
+	port := cfg.Gateway.Port
+	if port <= 0 {
+		port = 19800
+	}
+	aidoWSURL := fmt.Sprintf("ws://127.0.0.1:%d/ws", port)
+	bridgeMgr := bridge.NewManager(aidoWSURL, cfg.Gateway.Auth.Token)
+	defer bridgeMgr.StopAll()
+
+	config.RegisterOnReload(func(cfg *config.Config) {
+		reloadBridges(ctx, cfg, bridgeMgr)
+	})
+
+	configDir := filepath.Dir(config.Path())
+	bridgeCount := 0
+	for _, inst := range cfg.Bridges.Instances {
+		if !inst.Enabled || inst.Path == "" {
+			slog.Debug("bridge skipped", "id", inst.ID, "reason", "disabled or empty path")
+			continue
+		}
+		bridgeDir := inst.Path
+		if !filepath.IsAbs(bridgeDir) {
+			bridgeDir = filepath.Join(configDir, bridgeDir)
+		}
+		slog.Info("bridge starting", "id", inst.ID, "dir", bridgeDir)
+		if bridgeMgr.Start(ctx, bridgeDir, inst.ID, inst.Enabled, inst.Env) {
+			bridgeCount++
+		}
+	}
+	if len(cfg.Bridges.Instances) > 0 {
+		slog.Info("bridges init", "total_in_config", len(cfg.Bridges.Instances), "started", bridgeCount)
+	}
+
+	srv := gateway.NewServer(router, bridgeMgr)
 	return srv.Start(ctx)
 }
 
@@ -212,6 +245,48 @@ func reloadMCP(ctx context.Context, cfg *config.Config, mcpClient *mcp.Client, r
 		slog.Info("MCP server added", "name", name)
 	}
 	mcpClient.RegisterTools(registry)
+}
+
+func reloadBridges(ctx context.Context, cfg *config.Config, bridgeMgr *bridge.Manager) {
+	port := cfg.Gateway.Port
+	if port <= 0 {
+		port = 19800
+	}
+	bridgeMgr.SetGateway(fmt.Sprintf("ws://127.0.0.1:%d/ws", port), cfg.Gateway.Auth.Token)
+
+	configDir := filepath.Dir(config.Path())
+	enabledIDs := make(map[string]bool)
+	for _, inst := range cfg.Bridges.Instances {
+		if inst.Enabled && inst.Path != "" {
+			enabledIDs[inst.ID] = true
+		}
+	}
+	stopped := 0
+	for _, id := range bridgeMgr.RunningIDs() {
+		if !enabledIDs[id] {
+			bridgeMgr.Stop(id)
+			slog.Info("bridge stopped (config reload)", "id", id)
+			stopped++
+		}
+	}
+	started := 0
+	for _, inst := range cfg.Bridges.Instances {
+		if !inst.Enabled || inst.Path == "" {
+			continue
+		}
+		bridgeDir := inst.Path
+		if !filepath.IsAbs(bridgeDir) {
+			bridgeDir = filepath.Join(configDir, bridgeDir)
+		}
+		bridgeMgr.Stop(inst.ID)
+		slog.Info("bridge starting (config reload)", "id", inst.ID, "dir", bridgeDir)
+		if bridgeMgr.Start(ctx, bridgeDir, inst.ID, true, inst.Env) {
+			started++
+		}
+	}
+	if stopped > 0 || started > 0 {
+		slog.Info("bridges reload done", "stopped", stopped, "started", started)
+	}
 }
 
 func reloadSkills(cfg *config.Config, router *agent.Router, defaultWorkspace string) {

@@ -84,6 +84,9 @@ func ensureNonNilMaps(cfg *Config) {
 	if cfg.Tools.MCP == nil {
 		cfg.Tools.MCP = []MCPServerConfig{}
 	}
+	if cfg.Bridges.Instances == nil {
+		cfg.Bridges.Instances = []BridgeInstanceConfig{}
+	}
 }
 
 func applyLoadDefaults(cfg *Config) {

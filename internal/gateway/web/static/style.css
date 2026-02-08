@@ -448,6 +448,53 @@ details.execution-log[open] summary::before { transform: rotate(90deg); }
   cursor: pointer;
 }
 .config-checkbox-label input { width: auto; max-width: none; margin-top: 0; }
+.config-block input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: #64748b;
+  cursor: pointer;
+}
+.config-block .execution-log-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  margin-bottom: 8px;
+  color: #aaa;
+}
+.config-block .execution-log-switch input {
+  display: none !important;
+}
+.config-block .execution-log-switch-slider {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  background: #334155;
+  border-radius: 10px;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.config-block .execution-log-switch-slider::before {
+  content: '';
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  left: 2px;
+  top: 2px;
+  background: #e2e8f0;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.config-block .execution-log-switch input:checked + .execution-log-switch-slider {
+  background: #3b82f6;
+}
+.config-block .execution-log-switch input:checked + .execution-log-switch-slider::before {
+  transform: translateX(16px);
+}
+.config-block .execution-log-switch-label {
+  flex-shrink: 0;
+}
 
 .config-add-btn {
   margin-top: 10px;

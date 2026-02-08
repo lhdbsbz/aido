@@ -14,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"github.com/lhdbsbz/aido/internal/agent"
+	"github.com/lhdbsbz/aido/internal/bridge"
 	"github.com/lhdbsbz/aido/internal/config"
 )
 
@@ -28,17 +29,19 @@ var upgrader = websocket.Upgrader{
 
 // Server is the Aido gateway server.
 type Server struct {
-	Router  *agent.Router
-	Conns   *ConnManager
-	httpSrv *http.Server
-	startAt time.Time
+	Router        *agent.Router
+	Conns         *ConnManager
+	BridgeManager *bridge.Manager
+	httpSrv       *http.Server
+	startAt       time.Time
 }
 
-func NewServer(router *agent.Router) *Server {
+func NewServer(router *agent.Router, bridgeMgr *bridge.Manager) *Server {
 	return &Server{
-		Router:  router,
-		Conns:   NewConnManager(),
-		startAt: time.Now(),
+		Router:        router,
+		Conns:         NewConnManager(),
+		BridgeManager: bridgeMgr,
+		startAt:       time.Now(),
 	}
 }
 

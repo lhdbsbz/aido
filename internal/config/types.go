@@ -5,6 +5,18 @@ type Config struct {
 	Agents    map[string]AgentConfig    `yaml:"agents" json:"agents"`
 	Providers map[string]ProviderConfig `yaml:"providers" json:"providers"`
 	Tools     ToolsConfig               `yaml:"tools" json:"tools"`
+	Bridges   BridgesConfig             `yaml:"bridges" json:"bridges"`
+}
+
+type BridgesConfig struct {
+	Instances []BridgeInstanceConfig `yaml:"instances" json:"instances"`
+}
+
+type BridgeInstanceConfig struct {
+	ID      string            `yaml:"id" json:"id"`
+	Enabled bool              `yaml:"enabled" json:"enabled"`
+	Path    string            `yaml:"path" json:"path"`
+	Env     map[string]string `yaml:"env" json:"env"`
 }
 
 type GatewayConfig struct {

@@ -37,6 +37,8 @@
   var configProviderAdd = document.getElementById('configProviderAdd');
   var configMCP = document.getElementById('configMCP');
   var configMCPAdd = document.getElementById('configMCPAdd');
+  var configBridges = document.getElementById('configBridges');
+  var configBridgeAdd = document.getElementById('configBridgeAdd');
   var healthInfo = document.getElementById('healthInfo');
 
   var currentConfig = null;
@@ -926,6 +928,13 @@
     mcpList.forEach(function (m) {
       appendMCPRow(m.name || '', m.command || '', (m.args || []).join(', '), m.url || '', m.transport || '', m.env || {});
     });
+    if (configBridges) {
+      configBridges.innerHTML = '';
+      var bridgeList = (res.bridges && res.bridges.instances) || [];
+      bridgeList.forEach(function (b) {
+        appendBridgeRow(b.id || '', b.enabled !== false, b.path || '', b.env || {});
+      });
+    }
   }
 
   function appendMCPEnvRow(container, key, value) {
@@ -938,6 +947,32 @@
     row.querySelector('.config-block-remove-inline').addEventListener('click', function () { row.remove(); });
   }
 
+  function appendBridgeEnvRow(container, key, value) {
+    var row = document.createElement('div');
+    row.className = 'config-bridge-env-row config-block-row-inline';
+    row.innerHTML = '<label>变量名 <input type="text" class="config-bridge-env-key" value="' + escapeHtml(key || '') + '"></label>' +
+      '<label>值 <input type="text" class="config-bridge-env-val" value="' + escapeHtml(value || '') + '"></label>' +
+      '<button type="button" class="config-block-remove-inline">删除</button>';
+    container.appendChild(row);
+    row.querySelector('.config-block-remove-inline').addEventListener('click', function () { row.remove(); });
+  }
+  function appendBridgeRow(id, enabled, path, env) {
+    if (!configBridges) return;
+    var envObj = typeof env === 'object' && env !== null ? env : {};
+    var div = document.createElement('div');
+    div.className = 'config-block config-block-row';
+    div.innerHTML = '<div class="config-block-row-head"><span class="config-block-title">Bridge</span><button type="button" class="config-block-remove">删除</button></div>' +
+      '<label>ID <input type="text" class="config-bridge-id" value="' + escapeHtml(id) + '" placeholder="如 feishu"></label>' +
+      '<label class="execution-log-switch"><input type="checkbox" class="config-bridge-enabled" ' + (enabled ? 'checked' : '') + '><span class="execution-log-switch-slider"></span><span class="execution-log-switch-label">启用</span></label>' +
+      '<label>路径 <input type="text" class="config-bridge-path" value="' + escapeHtml(path) + '" placeholder="bridges/feishu 或绝对路径"></label>' +
+      '<div class="config-mcp-env-block"><span class="config-block-label">Env</span><div class="config-bridge-env-list"></div><button type="button" class="config-add-btn-inline config-bridge-env-add">添加变量</button></div>';
+    configBridges.appendChild(div);
+    var envList = div.querySelector('.config-bridge-env-list');
+    Object.keys(envObj).forEach(function (k) { appendBridgeEnvRow(envList, k, envObj[k]); });
+    if (envList.children.length === 0) appendBridgeEnvRow(envList, '', '');
+    div.querySelector('.config-bridge-env-add').addEventListener('click', function () { appendBridgeEnvRow(envList, '', ''); });
+    div.querySelector('.config-block-remove').addEventListener('click', function () { div.remove(); });
+  }
   function appendMCPRow(name, command, argsStr, url, transport, env) {
     var envObj = typeof env === 'object' && env !== null ? env : {};
     var transportVal = (transport || 'stdio').toLowerCase();
@@ -973,7 +1008,8 @@
       },
       agents: {},
       providers: {},
-      tools: {}
+      tools: {},
+      bridges: { instances: [] }
     };
     configAgents.querySelectorAll('.config-block').forEach(function (block) {
       var name = (block.querySelector('.config-agent-name') || {}).value;
@@ -1028,6 +1064,20 @@
       var args = argsStr.split(',').map(function (s) { return s.trim(); }).filter(Boolean);
       if (name || command || url) cfg.tools.mcp.push({ name: name, command: command, args: args, url: url, transport: transport || 'stdio', env: env });
     });
+    if (configBridges) {
+      configBridges.querySelectorAll('.config-block-row').forEach(function (block) {
+        var id = (block.querySelector('.config-bridge-id') || {}).value || '';
+        var enabled = (block.querySelector('.config-bridge-enabled') || {}).checked !== false;
+        var path = (block.querySelector('.config-bridge-path') || {}).value || '';
+        var env = {};
+        (block.querySelectorAll('.config-bridge-env-list .config-bridge-env-row') || []).forEach(function (row) {
+          var k = (row.querySelector('.config-bridge-env-key') || {}).value || '';
+          var v = (row.querySelector('.config-bridge-env-val') || {}).value || '';
+          if (k && k.trim()) env[k.trim()] = v;
+        });
+        if (id || path) cfg.bridges.instances.push({ id: id.trim() || 'bridge', enabled: enabled, path: path.trim(), env: env });
+      });
+    }
     return cfg;
   }
 
@@ -1063,6 +1113,7 @@
   }
 
   configMCPAdd.addEventListener('click', function () { appendMCPRow('', '', '', '', '', {}); });
+  if (configBridgeAdd) configBridgeAdd.addEventListener('click', function () { appendBridgeRow('', true, '', {}); });
 
   saveConfig.addEventListener('click', function () {
     if (!token) {

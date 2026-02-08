@@ -240,8 +240,9 @@ func configForUIFromCfg(cfg *config.Config) map[string]any {
 			"locale":       cfg.Gateway.Locale,
 			"auth":         map[string]any{"token": cfg.Gateway.Auth.Token},
 		},
-		"agents": cfg.Agents,
-		"tools":  cfg.Tools,
+		"agents":   cfg.Agents,
+		"tools":    cfg.Tools,
+		"bridges":  cfg.Bridges,
 	}
 	providers := make(map[string]any)
 	for k, p := range cfg.Providers {
@@ -254,7 +255,7 @@ func configForUIFromCfg(cfg *config.Config) map[string]any {
 func (s *Server) configForUI() map[string]any {
 	cfg := config.Get()
 	if cfg == nil {
-		return map[string]any{"configPath": config.Path(), "gateway": map[string]any{}, "agents": map[string]any{}, "providers": map[string]any{}, "tools": map[string]any{}}
+		return map[string]any{"configPath": config.Path(), "gateway": map[string]any{}, "agents": map[string]any{}, "providers": map[string]any{}, "tools": map[string]any{}, "bridges": map[string]any{"instances": []any{}}}
 	}
 	return configForUIFromCfg(cfg)
 }

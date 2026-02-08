@@ -60,6 +60,7 @@
           <a href="#config-section-agents" class="config-nav-item">Agents</a>
           <a href="#config-section-providers" class="config-nav-item">Providers</a>
           <a href="#config-section-tools" class="config-nav-item">工具 MCP</a>
+          <a href="#config-section-bridges" class="config-nav-item">Bridges</a>
         </nav>
         <div class="config-body">
       <div id="config-section-gateway" class="config-section">
@@ -99,6 +100,12 @@
         <h3 class="config-section-title">工具 MCP（Tools）</h3>
         <div id="configMCP"></div>
         <button type="button" id="configMCPAdd" class="config-add-btn">添加 MCP 服务</button>
+      </div>
+      <div id="config-section-bridges" class="config-section">
+        <h3 class="config-section-title">Bridges（桥接器）</h3>
+        <p class="config-section-hint">随 Aido 启动自动拉起的平台桥接器；path 相对配置文件所在目录或绝对路径。AIDO_WS_URL、AIDO_TOKEN 由主程序注入。</p>
+        <div id="configBridges"></div>
+        <button type="button" id="configBridgeAdd" class="config-add-btn">添加 Bridge</button>
       </div>
         </div>
       </div>
