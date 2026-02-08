@@ -29,16 +29,10 @@ type Loop struct {
 	OpenAI    *llm.OpenAIClient
 	Anthropic *llm.AnthropicClient
 	Tools     *tool.Registry
-	Policy    *tool.Policy
 	Config    *config.Config
 
 	MaxIterations int
 	ContextWindow int
-}
-
-// SetPolicy updates the tool policy (e.g. after config hot-reload).
-func (l *Loop) SetPolicy(p *tool.Policy) {
-	l.Policy = p
 }
 
 // RunParams holds parameters for a single agent run.
@@ -124,7 +118,7 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 	}
 
 	// Build tool definitions filtered by policy
-	toolDefs := l.Tools.ListToolDefs(l.Policy)
+	toolDefs := l.Tools.ListToolDefs()
 
 	// Build LLM params
 	baseLLMParams := llm.ChatParams{

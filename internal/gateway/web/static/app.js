@@ -31,7 +31,6 @@
   var configGatewayPort = document.getElementById('configGatewayPort');
   var configGatewayToken = document.getElementById('configGatewayToken');
   var configGatewayCurrentAgent = document.getElementById('configGatewayCurrentAgent');
-  var configGatewayToolsProfile = document.getElementById('configGatewayToolsProfile');
   var configGatewayLocale = document.getElementById('configGatewayLocale');
   var configAgents = document.getElementById('configAgents');
   var configAgentAdd = document.getElementById('configAgentAdd');
@@ -966,10 +965,6 @@
     if (res.gateway) {
       configGatewayPort.value = res.gateway.port != null ? res.gateway.port : '';
       configGatewayToken.value = (res.gateway.auth && res.gateway.auth.token) || '';
-      if (configGatewayToolsProfile) {
-        var gp = (res.gateway.toolsProfile || 'coding').toLowerCase();
-        configGatewayToolsProfile.value = ['minimal', 'coding', 'messaging', 'full'].indexOf(gp) >= 0 ? gp : 'coding';
-      }
       if (configGatewayLocale) {
         var loc = (res.gateway.locale || 'zh').toLowerCase();
         configGatewayLocale.value = (loc === 'en' ? 'en' : 'zh');
@@ -1071,7 +1066,6 @@
       gateway: {
         port: parseInt(configGatewayPort.value, 10) || 19800,
         currentAgent: (configGatewayCurrentAgent && configGatewayCurrentAgent.value) ? configGatewayCurrentAgent.value.trim() : '',
-        toolsProfile: (configGatewayToolsProfile && configGatewayToolsProfile.value) ? configGatewayToolsProfile.value.trim() : 'coding',
         locale: (configGatewayLocale && configGatewayLocale.value) ? configGatewayLocale.value : 'zh',
         auth: {
           token: configGatewayToken.value.trim()

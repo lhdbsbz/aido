@@ -23,7 +23,6 @@ type GatewayConfig struct {
 	Port         int        `yaml:"port" json:"port"`
 	Auth         AuthConfig `yaml:"auth" json:"auth"`
 	CurrentAgent string     `yaml:"currentAgent" json:"currentAgent"`   // 固定使用的 agent，空则可由请求指定
-	ToolsProfile string     `yaml:"toolsProfile" json:"toolsProfile"`   // 全局工具集档位：minimal | coding | messaging | full
 	Locale       string     `yaml:"locale" json:"locale"`               // 系统提示词语言：en（英语）| zh（中文），默认 zh
 }
 

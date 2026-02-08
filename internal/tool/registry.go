@@ -75,16 +75,13 @@ func (r *Registry) Execute(ctx context.Context, name string, paramsJSON string) 
 	return result, nil
 }
 
-// ListToolDefs returns LLM-compatible tool definitions, filtered by policy.
-func (r *Registry) ListToolDefs(policy *Policy) []llm.ToolDef {
+// ListToolDefs returns LLM-compatible tool definitions for all registered tools.
+func (r *Registry) ListToolDefs() []llm.ToolDef {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	defs := make([]llm.ToolDef, 0, len(r.tools))
-	for name, t := range r.tools {
-		if policy != nil && !policy.IsAllowed(name) {
-			continue
-		}
+	for _, t := range r.tools {
 		defs = append(defs, llm.ToolDef{
 			Name:        t.Name(),
 			Description: t.Description(),

@@ -93,9 +93,6 @@ func applyLoadDefaults(cfg *Config) {
 	if cfg.Gateway.Port <= 0 {
 		cfg.Gateway.Port = 19800
 	}
-	if cfg.Gateway.ToolsProfile == "" {
-		cfg.Gateway.ToolsProfile = "coding"
-	}
 }
 
 // LoadFromExample unmarshals the embedded config.example.yaml as the default config.

@@ -88,24 +88,11 @@ func serve() error {
 	mcpClient := mcp.NewClient()
 	reloadMCP(context.Background(), cfg, mcpClient, registry, config.ResolveHome())
 
-	// Build global policy from gateway.toolsProfile
-	profile := cfg.Gateway.ToolsProfile
-	if profile == "" {
-		profile = "coding"
-	}
-	globalPolicy := tool.PolicyLayer{Profile: profile}
-	if agentCfg, ok := cfg.Agents["default"]; ok {
-		globalPolicy.Allow = agentCfg.Tools.Allow
-		globalPolicy.Deny = agentCfg.Tools.Deny
-	}
-	policy := tool.NewPolicy(globalPolicy)
-
-	// Initialize agent loop
+	// Initialize agent loop (all tools allowed)
 	loop := &agent.Loop{
 		OpenAI:    llm.NewOpenAIClient(),
 		Anthropic: llm.NewAnthropicClient(),
 		Tools:     registry,
-		Policy:    policy,
 		Config:    cfg,
 	}
 
@@ -115,16 +102,6 @@ func serve() error {
 	config.RegisterOnReload(func(cfg *config.Config) {
 		reloadMCP(context.Background(), cfg, mcpClient, registry, config.ResolveHome())
 		reloadSkills(cfg, router)
-		profile := cfg.Gateway.ToolsProfile
-		if profile == "" {
-			profile = "coding"
-		}
-		layer := tool.PolicyLayer{Profile: profile}
-		if agentCfg, ok := cfg.Agents["default"]; ok {
-			layer.Allow = agentCfg.Tools.Allow
-			layer.Deny = agentCfg.Tools.Deny
-		}
-		loop.SetPolicy(tool.NewPolicy(layer))
 	})
 
 	// Start gateway with graceful shutdown

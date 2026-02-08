@@ -236,7 +236,6 @@ func configForUIFromCfg(cfg *config.Config) map[string]any {
 		"gateway": map[string]any{
 			"port":         cfg.Gateway.Port,
 			"currentAgent": cfg.Gateway.CurrentAgent,
-			"toolsProfile": cfg.Gateway.ToolsProfile,
 			"locale":       cfg.Gateway.Locale,
 			"auth":         map[string]any{"token": cfg.Gateway.Auth.Token},
 		},

@@ -117,7 +117,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	_ = sessionDir // transcript path is derived from store
 	mgr := session.NewManager(r.store, compactor, sessionKey, agentID)
 
-	toolDefs := r.loop.Tools.ListToolDefs(r.loop.Policy)
+	toolDefs := r.loop.Tools.ListToolDefs()
 	workspace := config.Workspace()
 
 	promptBuilder := &PromptBuilder{

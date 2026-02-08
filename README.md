@@ -64,7 +64,6 @@ agents:
   default:
     provider: "anthropic"
     model: "claude-sonnet-4-20250514"
-    workspace: "./workspace"
 ```
 
 ### 运行
@@ -205,11 +204,12 @@ aido/
 gateway:
   port: 19800                 # 服务端口
   currentAgent: "default"     # 默认 Agent
-  toolsProfile: "coding"      # 工具档位：minimal/coding/messaging/full
   locale: "zh"               # 语言：en/zh
   auth:
     token: "${AIDO_TOKEN}"   # 认证 Token
 ```
+
+内置工具与 MCP 工具均全部开放，无权限或档位配置。
 
 ### Providers
 
