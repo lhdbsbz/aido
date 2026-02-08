@@ -49,7 +49,7 @@ type MessageSendParams struct {
 }
 
 type AttachmentParam struct {
-	Type   string `json:"type"`   // "image"
+	Type   string `json:"type"`   // "image" | "audio" | "video" | "file"
 	URL    string `json:"url,omitempty"`
 	Base64 string `json:"base64,omitempty"`
 	MIME   string `json:"mime,omitempty"`

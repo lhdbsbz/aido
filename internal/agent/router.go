@@ -41,17 +41,21 @@ func (r *Router) SetSkills(agentID string, list []skills.SkillEntry) {
 }
 
 // InboundMessage represents a message from a bridge or client.
+// User message = text + attachments; original media is delivered to the model when supported.
 type InboundMessage struct {
-	AgentID   string // target agent (default: "default")
-	Channel   string // source channel (e.g., "telegram")
-	ChatID    string // conversation ID
-	SenderID  string // sender identifier
-	Text      string
-	Images    []ImageAttachment
-	MessageID string // for dedup
+	AgentID     string       // target agent (default: "default")
+	Channel     string       // source channel (e.g., "telegram")
+	ChatID      string       // conversation ID
+	SenderID    string       // sender identifier
+	Text        string
+	Attachments []Attachment // image | audio | video | file
+	MessageID   string       // for dedup
 }
 
-type ImageAttachment struct {
+// Attachment is one media or file item. Type is "image" | "audio" | "video" | "file".
+// Content is either URL or Base64+MIME.
+type Attachment struct {
+	Type   string
 	URL    string
 	Base64 string
 	MIME   string
@@ -136,28 +140,6 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 	}
 	systemPrompt := promptBuilder.Build()
 
-	// Convert image attachments
-	var images []struct {
-		URL    string
-		Base64 string
-		MIME   string
-	}
-	for _, img := range msg.Images {
-		images = append(images, struct {
-			URL    string
-			Base64 string
-			MIME   string
-		}{URL: img.URL, Base64: img.Base64, MIME: img.MIME})
-	}
-
-	var llmImages []struct {
-		URL    string `json:"url,omitempty"`
-		Base64 string `json:"base64,omitempty"`
-		MIME   string `json:"mime,omitempty"`
-	}
-	_ = llmImages
-
-	// Run agent
 	slog.Info("agent run started", "agent", agentID, "session", sessionKey, "channel", msg.Channel)
 	start := time.Now()
 
@@ -167,6 +149,7 @@ func (r *Router) HandleMessage(ctx context.Context, msg InboundMessage, eventSin
 		AgentConfig:  &agentCfg,
 		SystemPrompt: systemPrompt,
 		UserMessage:  msg.Text,
+		Attachments:  msg.Attachments,
 		EventSink:    eventSink,
 		ToolSteps:    &toolSteps,
 	})

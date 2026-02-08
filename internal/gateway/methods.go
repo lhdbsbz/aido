@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -11,25 +12,69 @@ import (
 	llmpkg "github.com/lhdbsbz/aido/internal/llm"
 )
 
+const (
+	maxAttachmentsPerMessage = 20
+	maxAttachmentBase64Bytes  = 15 * 1024 * 1024 // 15MB
+)
+
+var allowedAttachmentTypes = map[string]bool{"image": true, "audio": true, "video": true, "file": true}
+
+func validateAndConvertAttachments(in []AttachmentParam) ([]agent.Attachment, error) {
+	if len(in) > maxAttachmentsPerMessage {
+		return nil, fmt.Errorf("too many attachments: max %d", maxAttachmentsPerMessage)
+	}
+	out := make([]agent.Attachment, 0, len(in))
+	for i, a := range in {
+		typ := strings.TrimSpace(strings.ToLower(a.Type))
+		if typ == "" {
+			return nil, fmt.Errorf("attachment %d: type required", i+1)
+		}
+		if !allowedAttachmentTypes[typ] {
+			return nil, fmt.Errorf("attachment %d: invalid type %q (allowed: image, audio, video, file)", i+1, a.Type)
+		}
+		hasURL := strings.TrimSpace(a.URL) != ""
+		hasBase64 := strings.TrimSpace(a.Base64) != ""
+		if !hasURL && !hasBase64 {
+			return nil, fmt.Errorf("attachment %d: url or base64 required", i+1)
+		}
+		if hasURL && hasBase64 {
+			return nil, fmt.Errorf("attachment %d: provide url or base64, not both", i+1)
+		}
+		if hasBase64 {
+			decoded, err := base64.StdEncoding.DecodeString(a.Base64)
+			if err != nil {
+				return nil, fmt.Errorf("attachment %d: invalid base64: %w", i+1, err)
+			}
+			if len(decoded) > maxAttachmentBase64Bytes {
+				return nil, fmt.Errorf("attachment %d: base64 too large (max %d bytes)", i+1, maxAttachmentBase64Bytes)
+			}
+		}
+		out = append(out, agent.Attachment{Type: typ, URL: strings.TrimSpace(a.URL), Base64: a.Base64, MIME: strings.TrimSpace(a.MIME)})
+	}
+	return out, nil
+}
+
 func (s *Server) handleMessageSend(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {
 	var p MessageSendParams
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, fmt.Errorf("invalid params: %w", err)
 	}
-	if p.Channel == "" || p.Text == "" {
-		return nil, fmt.Errorf("channel and text required")
+	if p.Channel == "" {
+		return nil, fmt.Errorf("channel required")
+	}
+	if p.Text == "" && len(p.Attachments) == 0 {
+		return nil, fmt.Errorf("text or at least one attachment required")
 	}
 	if p.ChannelChatID == "" {
 		p.ChannelChatID = "main"
 	}
 
-	channel, channelChatId := p.Channel, p.ChannelChatID
-	var images []agent.ImageAttachment
-	for _, a := range p.Attachments {
-		if a.Type == "image" {
-			images = append(images, agent.ImageAttachment{URL: a.URL, Base64: a.Base64, MIME: a.MIME})
-		}
+	attachments, err := validateAndConvertAttachments(p.Attachments)
+	if err != nil {
+		return nil, err
 	}
+
+	channel, channelChatId := p.Channel, p.ChannelChatID
 
 	s.Conns.BroadcastToRole(RoleClient, "user_message", map[string]any{
 		"channel":        channel,
@@ -44,12 +89,12 @@ func (s *Server) handleMessageSend(ctx context.Context, conn *Conn, params json.
 	}
 
 	result, toolSteps, err := s.Router.HandleMessage(ctx, agent.InboundMessage{
-		Channel:   channel,
-		ChatID:    channelChatId,
-		SenderID:  p.SenderID,
-		Text:      p.Text,
-		Images:    images,
-		MessageID: p.MessageID,
+		Channel:     channel,
+		ChatID:      channelChatId,
+		SenderID:    p.SenderID,
+		Text:        p.Text,
+		Attachments: attachments,
+		MessageID:   p.MessageID,
 	}, eventSink)
 	if err != nil {
 		return nil, err
@@ -156,18 +201,17 @@ func (s *Server) handleSessionsList(ctx context.Context, conn *Conn, params json
 	return map[string]any{"sessions": sessions}, nil
 }
 
+// parseChannelChatId splits session key "channel:channelChatId" (channelChatId may contain ":").
 func parseChannelChatId(sessionKey string) (channel, channelChatId string) {
-	parts := strings.SplitN(sessionKey, ":", 3)
-	if len(parts) == 3 {
-		return parts[1], parts[2]
+	sessionKey = strings.TrimSpace(sessionKey)
+	if sessionKey == "" {
+		return "direct", "main"
 	}
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	idx := strings.Index(sessionKey, ":")
+	if idx < 0 {
+		return sessionKey, "main"
 	}
-	if len(parts) == 1 && parts[0] != "" {
-		return parts[0], "main"
-	}
-	return "direct", "main"
+	return sessionKey[:idx], sessionKey[idx+1:]
 }
 
 func (s *Server) handleHealthMethod(ctx context.Context, conn *Conn, params json.RawMessage) (any, error) {

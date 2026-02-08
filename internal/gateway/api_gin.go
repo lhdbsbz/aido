@@ -105,8 +105,12 @@ func (s *Server) ginAPIChatSend(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
-	if body.Channel == "" || body.Text == "" {
-		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "channel and text required"})
+	if body.Channel == "" {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "channel required"})
+		return
+	}
+	if body.Text == "" && len(body.Attachments) == 0 {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "text or at least one attachment required"})
 		return
 	}
 	if body.ChannelChatID == "" {

@@ -42,12 +42,13 @@ func (l *Loop) SetPolicy(p *tool.Policy) {
 }
 
 // RunParams holds parameters for a single agent run.
+// Attachments are converted to LLM content in one place: image -> image blocks; others noted in text.
 type RunParams struct {
 	SessionMgr   *session.Manager
 	AgentConfig  *config.AgentConfig
 	SystemPrompt string
 	UserMessage  string
-	Images       []llm.ImageData
+	Attachments  []Attachment
 	EventSink    EventSink
 	ToolSteps    *[]ToolStep // optional: collect tool steps for API response
 }
@@ -75,12 +76,32 @@ func (l *Loop) Run(ctx context.Context, params RunParams) (string, error) {
 		return "", fmt.Errorf("load transcript: %w", err)
 	}
 
-	// Append user message
+	// Convert attachments to LLM content: image -> ImageData; other types noted in text
+	var images []llm.ImageData
+	var otherParts []string
+	for _, a := range params.Attachments {
+		if a.Type == "image" {
+			images = append(images, llm.ImageData{URL: a.URL, Base64: a.Base64, MIME: a.MIME})
+		} else if a.Type != "" {
+			if a.URL != "" {
+				otherParts = append(otherParts, a.Type+": "+a.URL)
+			} else {
+				otherParts = append(otherParts, a.Type+" (inline)")
+			}
+		}
+	}
+	userText := params.UserMessage
+	if len(otherParts) > 0 {
+		if userText != "" {
+			userText += "\n\n"
+		}
+		userText += "[Attached: " + strings.Join(otherParts, "; ") + "]"
+	}
 	var userMsg llm.Message
-	if len(params.Images) > 0 {
-		userMsg = llm.UserMessageWithImages(params.UserMessage, params.Images)
+	if len(images) > 0 {
+		userMsg = llm.UserMessageWithImages(userText, images)
 	} else {
-		userMsg = llm.UserMessage(params.UserMessage)
+		userMsg = llm.UserMessage(userText)
 	}
 	messages = append(messages, userMsg)
 	if err := params.SessionMgr.Append(userMsg); err != nil {

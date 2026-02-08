@@ -41,7 +41,8 @@ func NewSpawnManager(router *Router, maxConcurrent int) *SpawnManager {
 }
 
 // Spawn starts a sub-agent in a background goroutine.
-func (m *SpawnManager) Spawn(parentCtx context.Context, agentID, message string, eventSink EventSink) (string, error) {
+// attachments are optional; when provided they are passed to the sub-agent like any other inbound message.
+func (m *SpawnManager) Spawn(parentCtx context.Context, agentID, message string, attachments []Attachment, eventSink EventSink) (string, error) {
 	m.mu.RLock()
 	activeCount := 0
 	for _, sa := range m.running {
@@ -73,10 +74,11 @@ func (m *SpawnManager) Spawn(parentCtx context.Context, agentID, message string,
 	go func() {
 		defer cancel()
 		result, _, err := m.router.HandleMessage(ctx, InboundMessage{
-			AgentID: agentID,
-			Channel: "subagent",
-			ChatID:  subID,
-			Text:    message,
+			AgentID:     agentID,
+			Channel:     "subagent",
+			ChatID:      subID,
+			Text:        message,
+			Attachments: attachments,
 		}, eventSink)
 
 		m.mu.Lock()
